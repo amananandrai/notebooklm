@@ -427,63 +427,169 @@ export default function VideoStudio({ slides = [], script = [] }) {
     boardFrame.position.set(0, 1.8, -1.82);
     scene.add(boardFrame);
 
-    // 5. Stylized Face Billboard Panels (Rich AI Assets)
-    const textureLoader = new THREE.TextureLoader();
-
-    function createAvatar(imagePath, colorHex, x, z, rotY) {
+    // 5. High-Resolution 3D Host Avatars (Procedural Geometries)
+    function createAvatar(isHostA, colorHex, x, z, rotY) {
       const avatar = new THREE.Group();
       avatar.position.set(x, 0.1, z);
       avatar.rotation.y = rotY;
 
-      // Table Stand Post (Metallic)
-      const postMat = new THREE.MeshStandardMaterial({ color: '#2a2a2a', roughness: 0.2, metalness: 0.9 });
-      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.7, 12), postMat);
-      post.position.y = 0.35;
+      // Table Mount Base & Stand (Metallic)
+      const postMat = new THREE.MeshStandardMaterial({ color: '#2b2b2b', roughness: 0.15, metalness: 0.95 });
+      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.45, 12), postMat);
+      post.position.y = 0.225;
       avatar.add(post);
 
-      const postBase = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 0.02, 16), postMat);
-      postBase.position.y = 0.01;
-      avatar.add(postBase);
+      const baseRing = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 0.02, 16), postMat);
+      baseRing.position.y = 0.01;
+      avatar.add(baseRing);
 
-      // Portrait panel box
-      const panelWidth = 0.75;
-      const panelHeight = 1.0;
-      const panelDepth = 0.04;
-      const panelGeo = new THREE.BoxGeometry(panelWidth, panelHeight, panelDepth);
+      // --- Body (Torso / Suit / Shirt Collar) ---
+      const suitMat = new THREE.MeshStandardMaterial({ color: colorHex, roughness: 0.6 });
+      const torso = new THREE.Mesh(new THREE.ConeGeometry(0.26, 0.8, 24), suitMat);
+      torso.position.y = 0.55;
+      torso.scale.set(1.1, 1, 0.75); // widen shoulders, flatten depth
+      torso.castShadow = true;
+      avatar.add(torso);
 
-      // Load avatar texture
-      const avatarTex = textureLoader.load(imagePath);
-      
-      // Materials: [right, left, top, bottom, front, back]
-      const materials = [
-        new THREE.MeshStandardMaterial({ color: '#1a1a24', roughness: 0.5 }), // right
-        new THREE.MeshStandardMaterial({ color: '#1a1a24', roughness: 0.5 }), // left
-        new THREE.MeshStandardMaterial({ color: '#1a1a24', roughness: 0.5 }), // top
-        new THREE.MeshStandardMaterial({ color: '#1a1a24', roughness: 0.5 }), // bottom
-        new THREE.MeshStandardMaterial({ map: avatarTex, roughness: 0.35, metalness: 0.1 }), // front
-        new THREE.MeshStandardMaterial({ color: '#121218', roughness: 0.7, metalness: 0.8 })  // back
-      ];
-      
-      const panel = new THREE.Mesh(panelGeo, materials);
-      panel.position.y = 1.1;
-      panel.castShadow = true;
-      avatar.add(panel);
+      // Shirt Collar (White)
+      const collarMat = new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.7 });
+      const collar = new THREE.Mesh(new THREE.CylinderGeometry(0.072, 0.078, 0.08, 16), collarMat);
+      collar.position.y = 0.93;
+      avatar.add(collar);
 
-      // Glowing neon halo border ring behind the panel
-      const ringGeo = new THREE.RingGeometry(0.52, 0.55, 32);
+      // Neck (Skin tone)
+      const skinMat = new THREE.MeshStandardMaterial({ color: '#ffd1b3', roughness: 0.7 });
+      const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.065, 0.065, 0.12, 16), skinMat);
+      neck.position.y = 0.98;
+      avatar.add(neck);
+
+      // --- Head & Face Features (High Subdivision) ---
+      const headGroup = new THREE.Group();
+      headGroup.position.y = 1.16; // Head center height
+
+      const skull = new THREE.Mesh(new THREE.SphereGeometry(0.18, 32, 32), skinMat);
+      skull.castShadow = true;
+      headGroup.add(skull);
+
+      // Nose
+      const nose = new THREE.Mesh(new THREE.ConeGeometry(0.022, 0.065, 12), skinMat);
+      nose.position.set(0, -0.01, 0.175);
+      nose.rotation.x = -Math.PI / 2.05;
+      headGroup.add(nose);
+
+      // Eyes (Detailed sclera, iris, pupil)
+      function makeEye(sideOffset) {
+        const eyeGroup = new THREE.Group();
+        eyeGroup.position.set(sideOffset, 0.035, 0.155);
+
+        // Sclera (White background)
+        const sclera = new THREE.Mesh(new THREE.SphereGeometry(0.028, 16, 16), new THREE.MeshBasicMaterial({ color: '#ffffff' }));
+        sclera.scale.set(1, 1, 0.5);
+        eyeGroup.add(sclera);
+
+        // Iris (Host A: blue-violet; Host B: emerald green)
+        const irisColor = isHostA ? '#3b82f6' : '#10b981';
+        const iris = new THREE.Mesh(new THREE.SphereGeometry(0.016, 16, 16), new THREE.MeshBasicMaterial({ color: irisColor }));
+        iris.position.z = 0.012;
+        eyeGroup.add(iris);
+
+        // Pupil (Black)
+        const pupil = new THREE.Mesh(new THREE.SphereGeometry(0.008, 8, 8), new THREE.MeshBasicMaterial({ color: '#000000' }));
+        pupil.position.z = 0.018;
+        eyeGroup.add(pupil);
+
+        return eyeGroup;
+      }
+      headGroup.add(makeEye(-0.05));
+      headGroup.add(makeEye(0.05));
+
+      // Eyebrows
+      const browMat = new THREE.MeshBasicMaterial({ color: isHostA ? '#2b1a0a' : '#4a2508' });
+      const browL = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.009, 0.005), browMat);
+      browL.position.set(-0.05, 0.075, 0.17);
+      browL.rotation.z = 0.06;
+      headGroup.add(browL);
+
+      const browR = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.009, 0.005), browMat);
+      browR.position.set(0.05, 0.075, 0.17);
+      browR.rotation.z = -0.06;
+      headGroup.add(browR);
+
+      // --- Physical Speaking Lips ---
+      const lipMat = new THREE.MeshStandardMaterial({ color: '#d17272', roughness: 0.85 });
+      const lipTop = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.008, 0.065, 8), lipMat);
+      lipTop.position.set(0, -0.062, 0.165);
+      lipTop.rotation.z = Math.PI / 2;
+      headGroup.add(lipTop);
+
+      const lipBottom = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.008, 0.065, 8), lipMat);
+      lipBottom.position.set(0, -0.075, 0.165);
+      lipBottom.rotation.z = Math.PI / 2;
+      headGroup.add(lipBottom);
+
+      // --- Professional Studio Headset (Band + Cups) ---
+      const gearMat = new THREE.MeshStandardMaterial({ color: '#141416', roughness: 0.45, metalness: 0.85 });
+      // Headband arching over skull
+      const band = new THREE.Mesh(
+        new THREE.TorusGeometry(0.198, 0.015, 8, 24, Math.PI),
+        gearMat
+      );
+      band.position.y = 0.03;
+      band.rotation.z = Math.PI;
+      headGroup.add(band);
+
+      // Cushioned Earcups (Left & Right)
+      const cupL = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.055, 0.045, 16), gearMat);
+      cupL.position.set(-0.19, 0.015, 0);
+      cupL.rotation.z = Math.PI / 2;
+      headGroup.add(cupL);
+
+      const cupR = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.055, 0.045, 16), gearMat);
+      cupR.position.set(0.19, 0.015, 0);
+      cupR.rotation.z = -Math.PI / 2;
+      headGroup.add(cupR);
+
+      // --- Hair Styles (Procedural 3D Elements) ---
+      const hairMat = new THREE.MeshStandardMaterial({ color: isHostA ? '#2d1b10' : '#542e0c', roughness: 0.95 });
+      const hairCap = new THREE.Mesh(new THREE.SphereGeometry(0.185, 16, 16, 0, Math.PI * 2, 0, Math.PI / 2), hairMat);
+      hairCap.position.set(0, 0.02, -0.01);
+      hairCap.rotation.x = -0.15;
+      headGroup.add(hairCap);
+
+      if (isHostA) {
+        // Front bangs tuft (Alex style)
+        const tuft = new THREE.Mesh(new THREE.SphereGeometry(0.075, 8, 8), hairMat);
+        tuft.position.set(0.035, 0.12, 0.12);
+        headGroup.add(tuft);
+      } else {
+        // Detailed flowing ponytail behind (Jordan style)
+        const ponyJoint = new THREE.Mesh(new THREE.SphereGeometry(0.03, 8, 8), new THREE.MeshBasicMaterial({ color: '#f3a8d4' }));
+        ponyJoint.position.set(0, -0.1, -0.16);
+        headGroup.add(ponyJoint);
+
+        const ponytail = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.045, 0.28, 8), hairMat);
+        ponytail.position.set(0, -0.22, -0.18);
+        ponytail.rotation.x = 0.18;
+        headGroup.add(ponytail);
+      }
+
+      avatar.add(headGroup);
+
+      // Back-light Neon Halo Ring (representing audio cast highlights)
+      const ringGeo = new THREE.RingGeometry(0.48, 0.50, 32);
       const ringMat = new THREE.MeshBasicMaterial({ color: colorHex, side: THREE.DoubleSide });
       const ring = new THREE.Mesh(ringGeo, ringMat);
-      ring.position.set(0, 1.1, -0.025);
+      ring.position.set(0, 0.95, -0.18); // set behind character torso
       avatar.add(ring);
 
-      avatar.userData = { panel, ring, basePosition: 0.1 };
+      avatar.userData = { headGroup, lipBottom, ring, basePosition: 0.1 };
       
       scene.add(avatar);
       return avatar;
     }
 
-    hostARef.current = createAvatar('/alex_avatar.png', '#7c6cf6', -1.35, 0.65, Math.PI / 4);
-    hostBRef.current = createAvatar('/jordan_avatar.png', '#ec4899', 1.35, 0.65, -Math.PI / 4);
+    hostARef.current = createAvatar(true, '#7c6cf6', -1.35, 0.65, Math.PI / 4);
+    hostBRef.current = createAvatar(false, '#ec4899', 1.35, 0.65, -Math.PI / 4);
 
     // Initial chalkboard render
     updateBlackboardTexture();
@@ -503,7 +609,10 @@ export default function VideoStudio({ slides = [], script = [] }) {
         hostARef.current.rotation.z = 0;
         hostBRef.current.rotation.z = 0;
 
-        // Reset speaking ring scale if quiet
+        // Reset speaking lip and ring scale if quiet
+        hostARef.current.userData.lipBottom.position.y = -0.075;
+        hostBRef.current.userData.lipBottom.position.y = -0.075;
+
         const turn = (playing && !paused && current >= 0) ? turns[current] : null;
         const isASpeaking = turn?.speaker?.toLowerCase().includes('host a') || turn?.speaker?.toLowerCase().includes('alex');
         
@@ -523,10 +632,14 @@ export default function VideoStudio({ slides = [], script = [] }) {
 
         if (activeHost && activeHost.userData.ring) {
           // Bob the panel up and down slightly to simulate talking
-          activeHost.position.y = activeHost.userData.basePosition + Math.abs(Math.sin(time * 6)) * 0.04;
-          activeHost.rotation.z = Math.sin(time * 4) * 0.02;
+          activeHost.position.y = activeHost.userData.basePosition + Math.abs(Math.sin(time * 6)) * 0.035;
+          activeHost.rotation.z = Math.sin(time * 4) * 0.015;
 
-          // Pulse the neon border ring scale to match speaking volume
+          // Physically translate bottom lip down to open mouth
+          const lipDelta = Math.abs(Math.sin(time * 16)) * 0.024;
+          activeHost.userData.lipBottom.position.y = -0.075 - lipDelta;
+
+          // Pulse the back neon halo border ring scale
           const ringPulse = 1.0 + Math.abs(Math.sin(time * 14)) * 0.16;
           activeHost.userData.ring.scale.set(ringPulse, ringPulse, 1);
         }
