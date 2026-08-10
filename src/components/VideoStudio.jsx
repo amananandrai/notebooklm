@@ -1,7 +1,14 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import * as THREE from 'three';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 
-export default function VideoStudio({ slides = [], script = [] }) {
+const EMPTY_LIST = [];
+const API_BASE = window.location.origin.includes('5173') || window.location.origin.includes('localhost')
+  ? 'http://127.0.0.1:8080/api'
+  : '/api';
+
+export default function VideoStudio({ slides, script }) {
   const mountRef = useRef(null);
   const canvasRef = useRef(null); // hidden 2D canvas for drawing blackboard text
 
@@ -11,10 +18,18 @@ export default function VideoStudio({ slides = [], script = [] }) {
   const [elapsed, setElapsed]   = useState(0);
   const [currentSlideIdx, setCurrentSlideIdx] = useState(0);
   const [showCaptions, setShowCaptions]       = useState(true);
+  const [recordedVideoUrl, setRecordedVideoUrl] = useState(null);
 
   const [isRecording, setIsRecording] = useState(false);
   const mediaRecorderRef = useRef(null);
   const recordedChunksRef = useRef([]);
+  const recordedVideoUrlRef = useRef(null);
+  const recordingStreamRef = useRef(null);
+  const recordingAudioRef = useRef(null);
+  const recordingAudioUrlRef = useRef(null);
+  const recordingAudioContextRef = useRef(null);
+  const recordingDurationsRef = useRef([]);
+  const [recordingError, setRecordingError] = useState('');
 
   const synthRef = useRef(window.speechSynthesis);
   const timerRef = useRef(null);
@@ -26,12 +41,22 @@ export default function VideoStudio({ slides = [], script = [] }) {
   const hostARef = useRef(null); // Host A mesh group
   const hostBRef = useRef(null); // Host B mesh group
   const boardTextureRef = useRef(null); // canvas texture for chalkboard
+  const updateBlackboardTextureRef = useRef(() => {});
+  const captionCanvasRef = useRef(null);
+  const captionTextureRef = useRef(null);
+  const captionMeshRef = useRef(null);
+  const updateCaptionOverlayRef = useRef(() => {});
   const animationFrameRef = useRef(null);
+  const playbackRef = useRef({ playing: false, paused: false, current: -1, turns: [] });
 
 
 
-  const turns = Array.isArray(script) ? script : [];
-  const slideList = Array.isArray(slides) ? slides : [];
+  const turns = useMemo(() => Array.isArray(script) ? script : EMPTY_LIST, [script]);
+  const slideList = useMemo(() => Array.isArray(slides) ? slides : EMPTY_LIST, [slides]);
+
+  useEffect(() => {
+    playbackRef.current = { playing, paused, current, turns };
+  }, [playing, paused, current, turns]);
 
   // Speech voices
   const [voices, setVoices] = useState([]);
@@ -82,27 +107,65 @@ export default function VideoStudio({ slides = [], script = [] }) {
     ctx.fillStyle = '#e2f0d9'; // Chalk white/greenish
     ctx.textAlign = 'left';
 
-    // Slide Header
-    ctx.font = 'bold 36px "Inter", sans-serif';
-    const title = slide.title.length > 45 ? slide.title.slice(0, 42) + '...' : slide.title;
-    ctx.fillText(title, 60, 90);
+    const wrapText = (text, maxWidth) => {
+      const words = String(text || '').split(/\s+/).filter(Boolean);
+      const lines = [];
+      let line = '';
+      words.forEach((word) => {
+        const candidate = line ? `${line} ${word}` : word;
+        if (line && ctx.measureText(candidate).width > maxWidth) {
+          lines.push(line);
+          line = word;
+        } else {
+          line = candidate;
+        }
+      });
+      if (line) lines.push(line);
+      return lines;
+    };
+
+    // Slide header: wrap instead of truncating long titles/subtitles.
+    ctx.font = 'bold 28px "Inter", sans-serif';
+    let headerY = 68;
+    wrapText(slide.title, canvas.width - 120).forEach((line) => {
+      ctx.fillText(line, 60, headerY);
+      headerY += 34;
+    });
+    if (slide.subtitle) {
+      ctx.fillStyle = '#c7dbc4';
+      ctx.font = 'italic 17px "Inter", sans-serif';
+      wrapText(slide.subtitle, canvas.width - 120).forEach((line) => {
+        ctx.fillText(line, 60, headerY);
+        headerY += 23;
+      });
+    }
 
     // Divider
     ctx.strokeStyle = '#e2f0d960';
     ctx.lineWidth = 4;
     ctx.beginPath();
-    ctx.moveTo(60, 120);
-    ctx.lineTo(canvas.width - 60, 120);
+    ctx.moveTo(60, headerY + 10);
+    ctx.lineTo(canvas.width - 60, headerY + 10);
     ctx.stroke();
 
     // Bullet points
     ctx.fillStyle = '#ffffffd0';
-    ctx.font = '24px "Inter", sans-serif';
-    let startY = 180;
-    const bullets = slide.bullets || [];
+    ctx.font = '17px "Inter", sans-serif';
+    let startY = headerY + 48;
+    const bullets = [];
     bullets.forEach((b, i) => {
       const text = b.length > 70 ? b.slice(0, 67) + '...' : b;
       ctx.fillText(`• ${text}`, 60, startY + i * 65);
+    });
+
+    // Wrapped bullet points: show the full slide copy without ellipses.
+    const wrappedBullets = slide.bullets || [];
+    wrappedBullets.forEach((bullet) => {
+      wrapText(bullet, canvas.width - 150).forEach((line, lineIndex) => {
+        ctx.fillText(`${lineIndex === 0 ? '• ' : '  '}${line}`, 60, startY);
+        startY += 23;
+      });
+      startY += 8;
     });
 
     // Page indicator
@@ -111,7 +174,7 @@ export default function VideoStudio({ slides = [], script = [] }) {
     ctx.fillText(`Slide ${currentSlideIdx + 1} of ${slideList.length}`, 60, canvas.height - 55);
 
     // Dynamic burned-in subtitles at the bottom of blackboard if playing
-    if (showCaptions && playing && current >= 0) {
+    if (showCaptions && playing && !isRecording && current >= 0) {
       const turn = turns[current];
       if (turn) {
         const speakerName = turn.speaker?.split(' ')[0] || 'Host';
@@ -159,12 +222,94 @@ export default function VideoStudio({ slides = [], script = [] }) {
     if (boardTextureRef.current) {
       boardTextureRef.current.needsUpdate = true;
     }
-  }, [currentSlideIdx, current, playing, showCaptions, turns, slideList]);
+  }, [currentSlideIdx, current, isRecording, playing, showCaptions, turns, slideList]);
+
+  const updateCaptionOverlay = useCallback(() => {
+    const canvas = captionCanvasRef.current;
+    const texture = captionTextureRef.current;
+    const mesh = captionMeshRef.current;
+    if (!canvas || !texture || !mesh) return;
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    const shouldShow = isRecording && showCaptions && playing && current >= 0 && turns[current];
+    mesh.visible = Boolean(shouldShow);
+    if (!shouldShow) {
+      texture.needsUpdate = true;
+      return;
+    }
+
+    const turn = turns[current];
+    const isHostA = turn.speaker?.toLowerCase().includes('host a') || turn.speaker?.toLowerCase().includes('alex');
+    const speakerColor = isHostA ? '#a594f2' : '#f9a8d4';
+
+    ctx.fillStyle = 'rgba(10, 10, 15, 0.92)';
+    ctx.fillRect(18, 18, canvas.width - 36, canvas.height - 36);
+    ctx.strokeStyle = `${speakerColor}99`;
+    ctx.lineWidth = 3;
+    ctx.strokeRect(18, 18, canvas.width - 36, canvas.height - 36);
+
+    ctx.fillStyle = speakerColor;
+    ctx.font = 'bold 24px "Inter", sans-serif';
+    ctx.fillText((turn.speaker?.split(' ')[0] || 'Host').toUpperCase(), 42, 62);
+
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'italic 22px "Inter", sans-serif';
+    const words = String(turn.text || '').split(/\s+/);
+    const maxWidth = canvas.width - 210;
+    const lines = [];
+    let line = '';
+    words.forEach((word) => {
+      const candidate = line ? `${line} ${word}` : word;
+      if (line && ctx.measureText(candidate).width > maxWidth) {
+        lines.push(line);
+        line = word;
+      } else {
+        line = candidate;
+      }
+    });
+    if (line) lines.push(line);
+    // Scale the caption to fit every wrapped line. The exported overlay is
+    // intentionally adaptive so long dialogue is never silently truncated.
+    let captionFontSize = 22;
+    let lineHeight = 27;
+    let captionLines = lines;
+    while (captionLines.length * lineHeight > 154 && captionFontSize > 12) {
+      captionFontSize -= 1;
+      lineHeight = Math.max(16, Math.round(captionFontSize * 1.22));
+      ctx.font = `italic ${captionFontSize}px "Inter", sans-serif`;
+      captionLines = [];
+      let fittedLine = '';
+      words.forEach((word) => {
+        const candidate = fittedLine ? `${fittedLine} ${word}` : word;
+        if (fittedLine && ctx.measureText(candidate).width > maxWidth) {
+          captionLines.push(fittedLine);
+          fittedLine = word;
+        } else {
+          fittedLine = candidate;
+        }
+      });
+      if (fittedLine) captionLines.push(fittedLine);
+    }
+    captionLines.forEach((captionLine, index) => {
+      ctx.fillText(captionLine, 170, 58 + index * lineHeight);
+    });
+    texture.needsUpdate = true;
+  }, [current, isRecording, playing, showCaptions, turns]);
+
+  updateBlackboardTextureRef.current = updateBlackboardTexture;
+  updateCaptionOverlayRef.current = updateCaptionOverlay;
 
   // Redraw chalkboard when slide or speaker changes
   useEffect(() => {
     updateBlackboardTexture();
   }, [currentSlideIdx, current, playing, showCaptions, updateBlackboardTexture]);
+
+  useEffect(() => {
+    updateCaptionOverlay();
+  }, [updateCaptionOverlay]);
 
   // ── Load speech voices ────────────────────────────────────────
   useEffect(() => {
@@ -234,6 +379,19 @@ export default function VideoStudio({ slides = [], script = [] }) {
 
   function handlePlayPause() {
     if (!turns.length) return;
+    if (isRecording) {
+      const recordingAudio = recordingAudioRef.current;
+      if (!recordingAudio) return;
+      if (paused) {
+        recordingAudio.play()
+          .then(() => setPaused(false))
+          .catch((err) => setRecordingError(err?.message || 'Unable to resume the recording audio.'));
+      } else {
+        recordingAudio.pause();
+        setPaused(true);
+      }
+      return;
+    }
     if (!playing) {
       synthRef.current.cancel();
       setElapsed(0);
@@ -251,6 +409,10 @@ export default function VideoStudio({ slides = [], script = [] }) {
   }
 
   function handleStop() {
+    if (isRecording) {
+      stopRecording();
+      return;
+    }
     synthRef.current.cancel();
     setPlaying(false);
     setPaused(false);
@@ -259,77 +421,153 @@ export default function VideoStudio({ slides = [], script = [] }) {
     clearInterval(timerRef.current);
   }
 
+  const cleanupRecordingAudio = useCallback(() => {
+    const audio = recordingAudioRef.current;
+    if (audio) {
+      audio.pause();
+      audio.ontimeupdate = null;
+      audio.onended = null;
+      audio.removeAttribute('src');
+      audio.load();
+    }
+    recordingAudioRef.current = null;
+    mediaRecorderRef.current = null;
+    if (recordingAudioContextRef.current) {
+      recordingAudioContextRef.current.close().catch(() => {});
+      recordingAudioContextRef.current = null;
+    }
+    if (recordingAudioUrlRef.current) {
+      URL.revokeObjectURL(recordingAudioUrlRef.current);
+      recordingAudioUrlRef.current = null;
+    }
+    recordingDurationsRef.current = [];
+  }, []);
+
+  const stopRecording = useCallback(() => {
+    const recorder = mediaRecorderRef.current;
+    if (recorder && recorder.state !== 'inactive') {
+      recorder.stop();
+    }
+    recordingStreamRef.current?.getTracks().forEach(track => track.stop());
+    recordingStreamRef.current = null;
+    cleanupRecordingAudio();
+    synthRef.current.cancel();
+    setIsRecording(false);
+    setPlaying(false);
+    setPaused(false);
+    setCurrent(-1);
+  }, [cleanupRecordingAudio]);
+
   const startRecording = useCallback(async () => {
-    if (!rendererRef.current) return;
+    if (!rendererRef.current || !turns.length) return;
     recordedChunksRef.current = [];
+    setRecordingError('');
 
-    const canvas = rendererRef.current.domElement;
-    const canvasStream = canvas.captureStream(30);
-
-    let audioStream = null;
-    try {
-      // Prompt user for microphone access to record spoken dialogue/speakers
-      audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    } catch (err) {
-      console.warn("Microphone access denied or unavailable. Recording video without audio.", err);
+    if (recordedVideoUrlRef.current) {
+      URL.revokeObjectURL(recordedVideoUrlRef.current);
+      recordedVideoUrlRef.current = null;
     }
-
-    const tracks = [...canvasStream.getVideoTracks()];
-    if (audioStream) {
-      tracks.push(...audioStream.getAudioTracks());
-    }
-    const combinedStream = new MediaStream(tracks);
-
-    let options = { mimeType: 'video/webm;codecs=vp9' };
-    if (!MediaRecorder.isTypeSupported(options.mimeType)) {
-      options = { mimeType: 'video/webm' };
-    }
+    setRecordedVideoUrl(null);
 
     try {
-      const recorder = new MediaRecorder(combinedStream, options);
+      // Generate a real WAV narration first so recording never opens a
+      // screen-sharing picker.
+      const ttsResponse = await fetch(`${API_BASE}/tts`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ turns }),
+      });
+      if (!ttsResponse.ok) {
+        const detail = await ttsResponse.text();
+        throw new Error(detail || 'The local speech service is unavailable.');
+      }
+      const ttsData = await ttsResponse.json();
+      const binary = Uint8Array.from(atob(ttsData.audioBase64), char => char.charCodeAt(0));
+      const audioUrl = URL.createObjectURL(new Blob([binary], { type: 'audio/wav' }));
+      const audio = new Audio(audioUrl);
+      audio.preload = 'auto';
+
+      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContextClass) throw new Error('This browser does not support audio recording.');
+      const audioContext = new AudioContextClass();
+      await audioContext.resume();
+      const source = audioContext.createMediaElementSource(audio);
+      const destination = audioContext.createMediaStreamDestination();
+      source.connect(destination);
+      source.connect(audioContext.destination);
+
+      const canvasStream = rendererRef.current.domElement.captureStream(30);
+      const combinedStream = new MediaStream([
+        ...canvasStream.getVideoTracks(),
+        ...destination.stream.getAudioTracks(),
+      ]);
+      const mimeType = [
+        'video/webm;codecs=vp9,opus',
+        'video/webm;codecs=vp8,opus',
+        'video/webm',
+      ].find(type => MediaRecorder.isTypeSupported(type));
+
+      const recorder = new MediaRecorder(combinedStream, mimeType ? { mimeType } : undefined);
       mediaRecorderRef.current = recorder;
+      recordingStreamRef.current = combinedStream;
+      recordingAudioRef.current = audio;
+      recordingAudioUrlRef.current = audioUrl;
+      recordingAudioContextRef.current = audioContext;
+      recordingDurationsRef.current = Array.isArray(ttsData.durations) ? ttsData.durations : [];
 
-      recorder.ondataavailable = (e) => {
-        if (e.data && e.data.size > 0) {
-          recordedChunksRef.current.push(e.data);
-        }
+      recorder.ondataavailable = (event) => {
+        if (event.data && event.data.size > 0) recordedChunksRef.current.push(event.data);
       };
-
       recorder.onstop = () => {
         const blob = new Blob(recordedChunksRef.current, { type: 'video/webm' });
         const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `presentation_3d_recording.webm`;
-        a.click();
-        URL.revokeObjectURL(url);
+        recordedVideoUrlRef.current = url;
+        setRecordedVideoUrl(url);
+        cleanupRecordingAudio();
       };
 
-      recorder.start();
-      setIsRecording(true);
-
-      // Autoplay speech synthesis
-      if (!synthRef.current.speaking) {
-        synthRef.current.cancel();
-        setElapsed(0);
-        setPlaying(true);
+      audio.ontimeupdate = () => {
+        const durations = recordingDurationsRef.current;
+        let accumulated = 0;
+        const nextTurn = durations.findIndex((duration) => {
+          accumulated += duration;
+          return audio.currentTime < accumulated;
+        });
+        if (nextTurn >= 0) setCurrent(nextTurn);
+      };
+      audio.onended = () => {
+        setPlaying(false);
         setPaused(false);
-        turnIdxRef.current = 0;
-        speakTurn(0);
-      }
+        if (mediaRecorderRef.current?.state !== 'inactive') stopRecording();
+      };
+
+      recorder.start(250);
+      setElapsed(0);
+      setCurrent(0);
+      setPlaying(true);
+      setPaused(false);
+      setIsRecording(true);
+      await audio.play();
     } catch (err) {
       console.error('Error starting video capture:', err);
+      const recorder = mediaRecorderRef.current;
+      if (recorder && recorder.state !== 'inactive') {
+        stopRecording();
+      } else {
+        recordingStreamRef.current?.getTracks().forEach(track => track.stop());
+        recordingStreamRef.current = null;
+        cleanupRecordingAudio();
+        setIsRecording(false);
+      }
+      setRecordingError(err?.message || 'Unable to create the narrated recording.');
     }
-  }, [playing, speakTurn]);
+  }, [cleanupRecordingAudio, stopRecording, turns]);
 
-  const stopRecording = useCallback(() => {
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-      mediaRecorderRef.current.stop();
-      // Stop all tracks (including microphone) to turn off recording light
-      mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
-    }
-    setIsRecording(false);
-  }, []);
+  useEffect(() => () => {
+    if (recordedVideoUrlRef.current) URL.revokeObjectURL(recordedVideoUrlRef.current);
+    recordingStreamRef.current?.getTracks().forEach(track => track.stop());
+    cleanupRecordingAudio();
+  }, [cleanupRecordingAudio]);
 
   // ── Three.js Scene Setup ──────────────────────────────────────
   useEffect(() => {
@@ -344,255 +582,265 @@ export default function VideoStudio({ slides = [], script = [] }) {
     scene.background = new THREE.Color('#0a0a0f'); // match app bg
     sceneRef.current = scene;
 
-    const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 1000);
-    camera.position.set(0, 3, 7.5);
-    camera.lookAt(0, 0.4, 0);
+    const camera = new THREE.PerspectiveCamera(34, width / height, 0.1, 1000);
+    camera.position.set(0, 2.85, 7.0);
+    camera.lookAt(0, 1.65, 0);
 
-    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.15;
     renderer.setSize(width, height);
     renderer.shadowMap.enabled = true;
     container.appendChild(renderer.domElement);
     rendererRef.current = renderer;
 
     // 2. Lights
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.45);
+    const ambientLight = new THREE.AmbientLight(0xffffff, 1.1);
     scene.add(ambientLight);
 
-    // Warm overhead spotlight
-    const spotlight = new THREE.SpotLight(0xfffaed, 2.5);
-    spotlight.position.set(0, 8, 3);
-    spotlight.angle = Math.PI / 4;
-    spotlight.penumbra = 0.8;
-    spotlight.castShadow = true;
-    scene.add(spotlight);
+    // Broad warm key light from the camera side so faces and clothing read.
+    const keyLight = new THREE.SpotLight(0xfff1dc, 5.5);
+    keyLight.position.set(0, 6, 5);
+    keyLight.target.position.set(0, 1.2, 0);
+    keyLight.angle = Math.PI / 3;
+    keyLight.penumbra = 0.7;
+    keyLight.decay = 1.4;
+    keyLight.castShadow = true;
+    scene.add(keyLight, keyLight.target);
 
-    // Soft blue fill light
-    const fillLight = new THREE.DirectionalLight(0x7c6cf6, 0.7);
-    fillLight.position.set(-4, 3, 2);
+    // Cool fill and soft rim separate the hosts from the blackboard.
+    const fillLight = new THREE.DirectionalLight(0x9fb7ff, 1.8);
+    fillLight.position.set(-4, 3, 5);
     scene.add(fillLight);
+    const rimLight = new THREE.DirectionalLight(0xffb36b, 2.2);
+    rimLight.position.set(0, 4, -4);
+    scene.add(rimLight);
+
+    const floor = new THREE.Mesh(
+      new THREE.PlaneGeometry(30, 30),
+      new THREE.MeshStandardMaterial({ color: '#151922', roughness: 0.88 })
+    );
+    floor.rotation.x = -Math.PI / 2;
+    floor.position.y = -0.08;
+    floor.position.z = 0.4;
+    floor.receiveShadow = true;
+    scene.add(floor);
 
     // 3. Studio Furniture
-    // Wooden Table
-    const tableGeo = new THREE.CylinderGeometry(2, 2.2, 0.15, 32);
-    const tableMat = new THREE.MeshStandardMaterial({ color: '#2a1a0a', roughness: 0.45, metalness: 0.1 });
-    const table = new THREE.Mesh(tableGeo, tableMat);
-    table.position.y = -0.075;
-    table.receiveShadow = true;
-    scene.add(table);
+    // Load high-resolution 3D table asset
+    const gltfLoader = new GLTFLoader();
+    gltfLoader.setMeshoptDecoder(MeshoptDecoder);
 
-    const standGeo = new THREE.CylinderGeometry(0.12, 0.12, 1.2, 8);
+    gltfLoader.load('/table.glb', (gltf) => {
+      const tableModel = gltf.scene;
+      tableModel.position.set(0, 0.28, 0.55);
+      tableModel.scale.set(1.9, 1.6, 1.8);
+      tableModel.traverse((child) => {
+        if (child.isMesh) {
+          child.castShadow = true;
+          child.receiveShadow = true;
+        }
+      });
+      scene.add(tableModel);
+    }, undefined, (err) => {
+      console.error("Error loading table GLB:", err);
+    });
+
     const standMat = new THREE.MeshStandardMaterial({ color: '#1a1a1a', roughness: 0.7 });
-    const tableStand = new THREE.Mesh(standGeo, standMat);
-    tableStand.position.y = -0.75;
-    scene.add(tableStand);
 
-    // Microphones
+    // Matte black table surface/apron makes the desk readable even over the
+    // darker imported table asset.
+    const tableTop = new THREE.Mesh(
+      new THREE.BoxGeometry(4.2, 0.16, 1.25),
+      new THREE.MeshBasicMaterial({ color: '#05070b' })
+    );
+    tableTop.position.set(0, 1.16, 0.72);
+    tableTop.castShadow = true;
+    tableTop.receiveShadow = true;
+    scene.add(tableTop);
+
+    const tableApron = new THREE.Mesh(
+      new THREE.BoxGeometry(3.95, 0.48, 0.18),
+      new THREE.MeshStandardMaterial({ color: '#11151d', roughness: 0.7 })
+    );
+    tableApron.position.set(0, 0.82, 0.98);
+    tableApron.castShadow = true;
+    scene.add(tableApron);
+
+    function createChair(x, accent) {
+      const chair = new THREE.Group();
+      chair.position.set(x, 0, -0.05);
+      const seatMat = new THREE.MeshStandardMaterial({ color: '#202735', roughness: 0.72 });
+      const accentMat = new THREE.MeshStandardMaterial({ color: accent, roughness: 0.55, metalness: 0.15 });
+
+      const seat = new THREE.Mesh(new THREE.BoxGeometry(0.92, 0.12, 0.86), seatMat);
+      seat.position.set(0, 0.72, 0);
+      seat.castShadow = true;
+      chair.add(seat);
+
+      const back = new THREE.Mesh(new THREE.BoxGeometry(0.98, 1.6, 0.14), seatMat);
+      back.position.set(0, 1.42, -0.28);
+      back.castShadow = true;
+      chair.add(back);
+
+      const backAccent = new THREE.Mesh(new THREE.BoxGeometry(0.13, 1.25, 0.16), accentMat);
+      backAccent.position.set(0, 1.42, -0.38);
+      chair.add(backAccent);
+
+      [-0.5, 0.5].forEach((armX) => {
+        const arm = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.08, 0.62), accentMat);
+        arm.position.set(armX, 1.05, -0.02);
+        chair.add(arm);
+      });
+
+      [-0.34, 0.34].forEach((legX) => {
+        [-0.28, 0.28].forEach((legZ) => {
+          const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.045, 0.72, 8), accentMat);
+          leg.position.set(legX, 0.36, legZ);
+          chair.add(leg);
+        });
+      });
+      scene.add(chair);
+    }
+
+    createChair(-2.55, '#7c6cf6');
+    createChair(2.55, '#ec4899');
+
+    // Microphones (kept high-quality procedural mics)
     function createMic(x, z, rotY) {
       const group = new THREE.Group();
-      group.position.set(x, 0.1, z);
+      group.position.set(x, 1.23, z);
       group.rotation.y = rotY;
 
-      const base = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, 0.02, 16), standMat);
+      const base = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.17, 0.04, 16), standMat);
       group.add(base);
 
-      const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, 0.4, 8), standMat);
-      shaft.position.y = 0.2;
+      const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, 0.42, 8), standMat);
+      shaft.position.y = 0.22;
       group.add(shaft);
 
-      const grill = new THREE.Mesh(new THREE.SphereGeometry(0.06, 8, 8), new THREE.MeshStandardMaterial({ color: '#777777', roughness: 0.3 }));
-      grill.position.y = 0.42;
+      const grill = new THREE.Mesh(new THREE.SphereGeometry(0.095, 12, 12), new THREE.MeshStandardMaterial({ color: '#9aa2b1', roughness: 0.3, metalness: 0.35 }));
+      grill.position.y = 0.48;
       group.add(grill);
+
+      const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.32, 8), standMat);
+      arm.position.set(0, 0.38, -0.06);
+      arm.rotation.z = Math.PI / 2.8;
+      group.add(arm);
 
       scene.add(group);
     }
-    createMic(-1.25, 0.7, -Math.PI / 5);
-    createMic(1.25, 0.7, Math.PI / 5);
+    createMic(-2.18, 0.98, -Math.PI / 10);
+    createMic(2.18, 0.98, Math.PI / 10);
 
     // 4. Blackboard (Slide display)
     const boardCanvas = canvasRef.current;
     const boardTexture = new THREE.CanvasTexture(boardCanvas);
     boardTextureRef.current = boardTexture;
 
-    const boardGeo = new THREE.BoxGeometry(4.8, 2.7, 0.08);
+    const boardGeo = new THREE.BoxGeometry(5.2, 2.7, 0.08);
     const boardMat = new THREE.MeshStandardMaterial({ map: boardTexture, roughness: 0.95 });
     const board = new THREE.Mesh(boardGeo, boardMat);
-    board.position.set(0, 1.8, -1.8);
+    board.position.set(0, 1.95, -1.8);
     board.receiveShadow = true;
     scene.add(board);
 
     // Wooden frame for board
-    const frameGeo = new THREE.BoxGeometry(4.92, 2.82, 0.06);
+    const frameGeo = new THREE.BoxGeometry(5.32, 2.82, 0.06);
     const frameMat = new THREE.MeshStandardMaterial({ color: '#3d2511', roughness: 0.8 });
     const boardFrame = new THREE.Mesh(frameGeo, frameMat);
-    boardFrame.position.set(0, 1.8, -1.82);
+    boardFrame.position.set(0, 1.95, -1.82);
     scene.add(boardFrame);
 
-    // 5. High-Resolution 3D Host Avatars (Procedural Geometries)
-    function createAvatar(isHostA, colorHex, x, z, rotY) {
-      const avatar = new THREE.Group();
-      avatar.position.set(x, 0.1, z);
-      avatar.rotation.y = rotY;
+    // Captions for exported video: this plane is part of the WebGL canvas,
+    // unlike the regular HTML caption box shown in the live UI.
+    const captionCanvas = document.createElement('canvas');
+    captionCanvas.width = 1024;
+    captionCanvas.height = 220;
+    captionCanvasRef.current = captionCanvas;
+    const captionTexture = new THREE.CanvasTexture(captionCanvas);
+    captionTextureRef.current = captionTexture;
+    const captionMaterial = new THREE.MeshBasicMaterial({
+      map: captionTexture,
+      transparent: true,
+      depthTest: false,
+      depthWrite: false,
+    });
+    const captionMesh = new THREE.Mesh(new THREE.PlaneGeometry(5.6, 1.2), captionMaterial);
+    captionMesh.position.set(0, 0.62, 2.35);
+    captionMesh.renderOrder = 100;
+    captionMesh.visible = false;
+    captionMeshRef.current = captionMesh;
+    scene.add(captionMesh);
+    updateCaptionOverlayRef.current();
 
-      // Table Mount Base & Stand (Metallic)
-      const postMat = new THREE.MeshStandardMaterial({ color: '#2b2b2b', roughness: 0.15, metalness: 0.95 });
-      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.45, 12), postMat);
-      post.position.y = 0.225;
-      avatar.add(post);
-
-      const baseRing = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 0.02, 16), postMat);
-      baseRing.position.y = 0.01;
-      avatar.add(baseRing);
-
-      // --- Body (Torso / Suit / Shirt Collar) ---
-      const suitMat = new THREE.MeshStandardMaterial({ color: colorHex, roughness: 0.6 });
-      const torso = new THREE.Mesh(new THREE.ConeGeometry(0.26, 0.8, 24), suitMat);
-      torso.position.y = 0.55;
-      torso.scale.set(1.1, 1, 0.75); // widen shoulders, flatten depth
-      torso.castShadow = true;
-      avatar.add(torso);
-
-      // Shirt Collar (White)
-      const collarMat = new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.7 });
-      const collar = new THREE.Mesh(new THREE.CylinderGeometry(0.072, 0.078, 0.08, 16), collarMat);
-      collar.position.y = 0.93;
-      avatar.add(collar);
-
-      // Neck (Skin tone)
-      const skinMat = new THREE.MeshStandardMaterial({ color: '#ffd1b3', roughness: 0.7 });
-      const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.065, 0.065, 0.12, 16), skinMat);
-      neck.position.y = 0.98;
-      avatar.add(neck);
-
-      // --- Head & Face Features (High Subdivision) ---
-      const headGroup = new THREE.Group();
-      headGroup.position.y = 1.16; // Head center height
-
-      const skull = new THREE.Mesh(new THREE.SphereGeometry(0.18, 32, 32), skinMat);
-      skull.castShadow = true;
-      headGroup.add(skull);
-
-      // Nose
-      const nose = new THREE.Mesh(new THREE.ConeGeometry(0.022, 0.065, 12), skinMat);
-      nose.position.set(0, -0.01, 0.175);
-      nose.rotation.x = -Math.PI / 2.05;
-      headGroup.add(nose);
-
-      // Eyes (Detailed sclera, iris, pupil)
-      function makeEye(sideOffset) {
-        const eyeGroup = new THREE.Group();
-        eyeGroup.position.set(sideOffset, 0.035, 0.155);
-
-        // Sclera (White background)
-        const sclera = new THREE.Mesh(new THREE.SphereGeometry(0.028, 16, 16), new THREE.MeshBasicMaterial({ color: '#ffffff' }));
-        sclera.scale.set(1, 1, 0.5);
-        eyeGroup.add(sclera);
-
-        // Iris (Host A: blue-violet; Host B: emerald green)
-        const irisColor = isHostA ? '#3b82f6' : '#10b981';
-        const iris = new THREE.Mesh(new THREE.SphereGeometry(0.016, 16, 16), new THREE.MeshBasicMaterial({ color: irisColor }));
-        iris.position.z = 0.012;
-        eyeGroup.add(iris);
-
-        // Pupil (Black)
-        const pupil = new THREE.Mesh(new THREE.SphereGeometry(0.008, 8, 8), new THREE.MeshBasicMaterial({ color: '#000000' }));
-        pupil.position.z = 0.018;
-        eyeGroup.add(pupil);
-
-        return eyeGroup;
-      }
-      headGroup.add(makeEye(-0.05));
-      headGroup.add(makeEye(0.05));
-
-      // Eyebrows
-      const browMat = new THREE.MeshBasicMaterial({ color: isHostA ? '#2b1a0a' : '#4a2508' });
-      const browL = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.009, 0.005), browMat);
-      browL.position.set(-0.05, 0.075, 0.17);
-      browL.rotation.z = 0.06;
-      headGroup.add(browL);
-
-      const browR = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.009, 0.005), browMat);
-      browR.position.set(0.05, 0.075, 0.17);
-      browR.rotation.z = -0.06;
-      headGroup.add(browR);
-
-      // --- Physical Speaking Lips ---
-      const lipMat = new THREE.MeshStandardMaterial({ color: '#d17272', roughness: 0.85 });
-      const lipTop = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.008, 0.065, 8), lipMat);
-      lipTop.position.set(0, -0.062, 0.165);
-      lipTop.rotation.z = Math.PI / 2;
-      headGroup.add(lipTop);
-
-      const lipBottom = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.008, 0.065, 8), lipMat);
-      lipBottom.position.set(0, -0.075, 0.165);
-      lipBottom.rotation.z = Math.PI / 2;
-      headGroup.add(lipBottom);
-
-      // --- Professional Studio Headset (Band + Cups) ---
-      const gearMat = new THREE.MeshStandardMaterial({ color: '#141416', roughness: 0.45, metalness: 0.85 });
-      // Headband arching over skull
-      const band = new THREE.Mesh(
-        new THREE.TorusGeometry(0.198, 0.015, 8, 24, Math.PI),
-        gearMat
-      );
-      band.position.y = 0.03;
-      band.rotation.z = Math.PI;
-      headGroup.add(band);
-
-      // Cushioned Earcups (Left & Right)
-      const cupL = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.055, 0.045, 16), gearMat);
-      cupL.position.set(-0.19, 0.015, 0);
-      cupL.rotation.z = Math.PI / 2;
-      headGroup.add(cupL);
-
-      const cupR = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.055, 0.045, 16), gearMat);
-      cupR.position.set(0.19, 0.015, 0);
-      cupR.rotation.z = -Math.PI / 2;
-      headGroup.add(cupR);
-
-      // --- Hair Styles (Procedural 3D Elements) ---
-      const hairMat = new THREE.MeshStandardMaterial({ color: isHostA ? '#2d1b10' : '#542e0c', roughness: 0.95 });
-      const hairCap = new THREE.Mesh(new THREE.SphereGeometry(0.185, 16, 16, 0, Math.PI * 2, 0, Math.PI / 2), hairMat);
-      hairCap.position.set(0, 0.02, -0.01);
-      hairCap.rotation.x = -0.15;
-      headGroup.add(hairCap);
-
-      if (isHostA) {
-        // Front bangs tuft (Alex style)
-        const tuft = new THREE.Mesh(new THREE.SphereGeometry(0.075, 8, 8), hairMat);
-        tuft.position.set(0.035, 0.12, 0.12);
-        headGroup.add(tuft);
-      } else {
-        // Detailed flowing ponytail behind (Jordan style)
-        const ponyJoint = new THREE.Mesh(new THREE.SphereGeometry(0.03, 8, 8), new THREE.MeshBasicMaterial({ color: '#f3a8d4' }));
-        ponyJoint.position.set(0, -0.1, -0.16);
-        headGroup.add(ponyJoint);
-
-        const ponytail = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.045, 0.28, 8), hairMat);
-        ponytail.position.set(0, -0.22, -0.18);
-        ponytail.rotation.x = 0.18;
-        headGroup.add(ponytail);
+    // Load High-Resolution 3D Host Avatars from public folder GLBs.
+    // The source files are authored at a tiny scale, so fit them to the
+    // studio after loading instead of relying on their exported transforms.
+    function prepareHostModel(model, x, z, rotationY) {
+      model.updateMatrixWorld(true);
+      const sourceBounds = new THREE.Box3().setFromObject(model);
+      const sourceSize = sourceBounds.getSize(new THREE.Vector3());
+      const targetHeight = 1.9;
+      if (sourceSize.y > 0) {
+        model.scale.multiplyScalar(targetHeight / sourceSize.y);
       }
 
-      avatar.add(headGroup);
+      model.updateMatrixWorld(true);
+      const fittedBounds = new THREE.Box3().setFromObject(model);
+      const basePosition = 0.28 - fittedBounds.min.y;
 
-      // Back-light Neon Halo Ring (representing audio cast highlights)
-      const ringGeo = new THREE.RingGeometry(0.48, 0.50, 32);
-      const ringMat = new THREE.MeshBasicMaterial({ color: colorHex, side: THREE.DoubleSide });
-      const ring = new THREE.Mesh(ringGeo, ringMat);
-      ring.position.set(0, 0.95, -0.18); // set behind character torso
-      avatar.add(ring);
+      model.position.set(x, basePosition, z);
+      model.rotation.y = rotationY;
+      const bones = {};
+      model.traverse((child) => {
+        if (child.isBone) bones[child.name] = child;
+      });
 
-      avatar.userData = { headGroup, lipBottom, ring, basePosition: 0.1 };
-      
-      scene.add(avatar);
-      return avatar;
+      // The source avatars are authored in a T-pose. Bend the legs and arms
+      // so the table/chairs read as a seated conversation rather than a stage
+      // lineup, while keeping the original GLB materials and faces.
+      ['LeftUpLeg', 'RightUpLeg'].forEach((name) => {
+        if (bones[name]) bones[name].rotation.x = -1.0;
+      });
+      ['LeftLeg', 'RightLeg'].forEach((name) => {
+        if (bones[name]) bones[name].rotation.x = 1.2;
+      });
+      if (bones.LeftArm) bones.LeftArm.rotation.z = -0.55;
+      if (bones.RightArm) bones.RightArm.rotation.z = 0.55;
+      if (bones.LeftForeArm) bones.LeftForeArm.rotation.z = 0.9;
+      if (bones.RightForeArm) bones.RightForeArm.rotation.z = -0.9;
+      model.traverse((child) => {
+        if (child.isMesh) {
+          child.castShadow = true;
+          child.receiveShadow = true;
+        }
+      });
+      scene.add(model);
+      model.userData = { basePosition, baseRotationY: rotationY };
     }
 
-    hostARef.current = createAvatar(true, '#7c6cf6', -1.35, 0.65, Math.PI / 4);
-    hostBRef.current = createAvatar(false, '#ec4899', 1.35, 0.65, -Math.PI / 4);
+    // Load Host A (Alex)
+    gltfLoader.load('/male.glb', (gltf) => {
+      const model = gltf.scene;
+      prepareHostModel(model, -2.55, 0.65, Math.PI / 10);
+      hostARef.current = model;
+    }, undefined, (err) => {
+      console.error("Error loading male avatar GLB:", err);
+    });
+
+    // Load Host B (Jordan)
+    gltfLoader.load('/female.glb', (gltf) => {
+      const model = gltf.scene;
+      prepareHostModel(model, 2.55, 0.65, -Math.PI / 10);
+      hostBRef.current = model;
+    }, undefined, (err) => {
+      console.error("Error loading female avatar GLB:", err);
+    });
 
     // Initial chalkboard render
-    updateBlackboardTexture();
+    updateBlackboardTextureRef.current();
 
     // ── Animation Frame Loop ─────────────────────────────────────
     let clock = new THREE.Clock();
@@ -603,45 +851,29 @@ export default function VideoStudio({ slides = [], script = [] }) {
 
       // Subtle breathing animations for both hosts
       if (hostARef.current && hostBRef.current) {
-        hostARef.current.position.y = hostARef.current.userData.basePosition + Math.sin(time * 1.5) * 0.008;
-        hostBRef.current.position.y = hostBRef.current.userData.basePosition + Math.sin(time * 1.6 + 0.5) * 0.008;
+        hostARef.current.position.y = (hostARef.current.userData.basePosition || 0) + Math.sin(time * 1.5) * 0.008;
+        hostBRef.current.position.y = (hostBRef.current.userData.basePosition || 0) + Math.sin(time * 1.6 + 0.5) * 0.008;
 
         hostARef.current.rotation.z = 0;
         hostBRef.current.rotation.z = 0;
+        hostARef.current.rotation.y = hostARef.current.userData.baseRotationY || Math.PI / 4;
+        hostBRef.current.rotation.y = hostBRef.current.userData.baseRotationY || -Math.PI / 4;
 
-        // Reset speaking lip and ring scale if quiet
-        hostARef.current.userData.lipBottom.position.y = -0.075;
-        hostBRef.current.userData.lipBottom.position.y = -0.075;
-
-        const turn = (playing && !paused && current >= 0) ? turns[current] : null;
-        const isASpeaking = turn?.speaker?.toLowerCase().includes('host a') || turn?.speaker?.toLowerCase().includes('alex');
-        
-        if (!isASpeaking && hostARef.current.userData.ring) {
-          hostARef.current.userData.ring.scale.set(1, 1, 1);
-        }
-        if ((!playing || paused || current < 0 || isASpeaking) && hostBRef.current.userData.ring) {
-          hostBRef.current.userData.ring.scale.set(1, 1, 1);
-        }
       }
 
       // Speak animations (if playing and speaking)
-      if (playing && !paused && current >= 0 && turns[current]) {
-        const turn = turns[current];
+      const playback = playbackRef.current;
+      if (playback.playing && !playback.paused && playback.current >= 0 && playback.turns[playback.current]) {
+        const turn = playback.turns[playback.current];
         const isA  = turn.speaker?.toLowerCase().includes('host a') || turn.speaker?.toLowerCase().includes('alex');
         const activeHost = isA ? hostARef.current : hostBRef.current;
 
-        if (activeHost && activeHost.userData.ring) {
-          // Bob the panel up and down slightly to simulate talking
-          activeHost.position.y = activeHost.userData.basePosition + Math.abs(Math.sin(time * 6)) * 0.035;
+        if (activeHost) {
+          // Bob the model up and down slightly to simulate talking
+          activeHost.position.y = (activeHost.userData.basePosition || 0) + Math.abs(Math.sin(time * 6)) * 0.035;
+          activeHost.rotation.y = (activeHost.userData.baseRotationY || (isA ? Math.PI / 4 : -Math.PI / 4)) + Math.sin(time * 5) * 0.05;
           activeHost.rotation.z = Math.sin(time * 4) * 0.015;
 
-          // Physically translate bottom lip down to open mouth
-          const lipDelta = Math.abs(Math.sin(time * 16)) * 0.024;
-          activeHost.userData.lipBottom.position.y = -0.075 - lipDelta;
-
-          // Pulse the back neon halo border ring scale
-          const ringPulse = 1.0 + Math.abs(Math.sin(time * 14)) * 0.16;
-          activeHost.userData.ring.scale.set(ringPulse, ringPulse, 1);
         }
       }
 
@@ -666,8 +898,18 @@ export default function VideoStudio({ slides = [], script = [] }) {
       if (rendererRef.current && rendererRef.current.domElement) {
         rendererRef.current.domElement.remove();
       }
+      renderer.dispose();
+      rendererRef.current = null;
+      hostARef.current = null;
+      hostBRef.current = null;
+      captionTexture.dispose();
+      captionMaterial.dispose();
+      captionMesh.geometry.dispose();
+      captionCanvasRef.current = null;
+      captionTextureRef.current = null;
+      captionMeshRef.current = null;
     };
-  }, [playing, paused, current, turns, updateBlackboardTexture]);
+  }, []);
 
   function fmtTime(secs) {
     const m = Math.floor(secs / 60).toString().padStart(2, '0');
@@ -713,7 +955,7 @@ export default function VideoStudio({ slides = [], script = [] }) {
             transform: 'translateX(-50%)', width: '85%', maxWidth: '640px',
             background: 'rgba(10, 10, 15, 0.85)', backdropFilter: 'blur(8px)',
             border: `1px solid ${turns[current]?.speaker?.toLowerCase().includes('alex') ? 'rgba(124, 108, 246, 0.4)' : 'rgba(236, 72, 153, 0.4)'}`,
-            borderRadius: 12, padding: '10px 18px', display: 'flex',
+            borderRadius: 12, padding: '10px 18px', display: isRecording ? 'none' : 'flex',
             alignItems: 'center', gap: 12, zIndex: 10, boxShadow: '0 8px 32px rgba(0,0,0,0.5)'
           }}>
             <span style={{
@@ -730,6 +972,19 @@ export default function VideoStudio({ slides = [], script = [] }) {
         )}
       </div>
 
+      {recordingError && (
+        <div style={{
+          background: 'rgba(127, 29, 29, 0.22)',
+          color: '#fecaca',
+          borderTop: '1px solid rgba(248, 113, 113, 0.35)',
+          borderBottom: '1px solid rgba(248, 113, 113, 0.25)',
+          fontSize: 12,
+          padding: '8px 20px',
+        }}>
+          {recordingError}
+        </div>
+      )}
+
       {/* Video Studio Controls */}
       <div className="audio-controls" style={{ background: 'var(--bg-elevated)', padding: '14px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
         
@@ -742,6 +997,7 @@ export default function VideoStudio({ slides = [], script = [] }) {
           
           <button
             onClick={isRecording ? stopRecording : startRecording}
+            title="Record the 3D scene with generated narration and burned-in captions."
             style={{
               marginLeft: 12,
               background: isRecording ? 'var(--red)' : 'var(--bg-active)',
@@ -758,11 +1014,29 @@ export default function VideoStudio({ slides = [], script = [] }) {
               gap: 6
             }}
           >
-            <span>{isRecording ? '⏹ Stop Recording' : '🎥 Record Visuals'}</span>
+            <span>{isRecording ? '⏹ Stop Recording' : '🎥 Record Video'}</span>
           </button>
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          {recordedVideoUrl && !isRecording && (
+            <a
+              href={recordedVideoUrl}
+              download="presentation_3d_recording.webm"
+              style={{
+                color: 'var(--accent-lit)',
+                border: '1px solid var(--accent)66',
+                background: 'var(--accent-dim)',
+                fontSize: 12,
+                padding: '6px 12px',
+                borderRadius: 8,
+                fontWeight: 700,
+                textDecoration: 'none',
+              }}
+            >
+              Download Video
+            </a>
+          )}
           {/* Subtitles CC Toggle */}
           <button
             onClick={() => setShowCaptions(!showCaptions)}

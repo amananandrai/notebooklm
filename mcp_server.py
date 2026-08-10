@@ -1,8 +1,13 @@
 import uvicorn
+import base64
+import io
 import json
 import re
 import os
+import subprocess
+import tempfile
 import urllib.request
+import wave
 from typing import Any, List, Optional, Union
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -73,6 +78,108 @@ class ArtifactSchema(BaseModel):
     docId: str
     featureType: str
     data: Union[dict, list, Any]
+
+class TTSRequest(BaseModel):
+    turns: List[dict]
+
+
+def _synthesize_video_audio(turns: List[dict]) -> dict:
+    """Create one WAV track with the same host voices used by the video recorder.
+
+    Browser SpeechSynthesis is audible but does not expose its output as a
+    MediaStream. Windows SAPI gives the recorder a real PCM audio track without
+    requiring screen/tab sharing or a microphone.
+    """
+    if not turns:
+        raise ValueError("At least one dialogue turn is required")
+
+    powershell = """
+param([string]$TextBase64, [string]$VoiceName, [string]$OutputPath)
+Add-Type -AssemblyName System.Speech
+$text = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($TextBase64))
+$synth = New-Object System.Speech.Synthesis.SpeechSynthesizer
+try { $synth.SelectVoice($VoiceName) } catch { }
+$synth.Rate = -1
+$synth.Volume = 100
+$synth.SetOutputToWaveFile($OutputPath)
+$synth.Speak($text)
+$synth.SetOutputToNull()
+$synth.Dispose()
+"""
+
+    temp_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".tmp_tts")
+    os.makedirs(temp_root, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="notebooklm_tts_", dir=temp_root, ignore_cleanup_errors=True) as temp_dir:
+        script_path = os.path.join(temp_dir, "synthesize_turn.ps1")
+        with open(script_path, "w", encoding="utf-8") as script_file:
+            script_file.write(powershell)
+
+        chunk_paths = []
+        for index, turn in enumerate(turns):
+            text = str(turn.get("text", "")).strip()
+            if not text:
+                continue
+            is_host_a = "host a" in str(turn.get("speaker", "")).lower() or "alex" in str(turn.get("speaker", "")).lower()
+            voice_name = "Microsoft David Desktop" if is_host_a else "Microsoft Zira Desktop"
+            chunk_path = os.path.join(temp_dir, f"turn_{index}.wav")
+            text_b64 = base64.b64encode(text.encode("utf-8")).decode("ascii")
+            result = subprocess.run(
+                ["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", script_path,
+                 "-TextBase64", text_b64, "-VoiceName", voice_name, "-OutputPath", chunk_path],
+                capture_output=True,
+                text=True,
+                timeout=90,
+                check=False,
+            )
+            if result.returncode != 0 or not os.path.exists(chunk_path):
+                detail = (result.stderr or result.stdout or "Windows speech synthesis failed").strip()
+                raise RuntimeError(detail)
+            chunk_paths.append(chunk_path)
+
+        if not chunk_paths:
+            raise ValueError("Dialogue turns contain no text")
+
+        combined = bytearray()
+        durations = []
+        first_params = None
+        pause_seconds = 0.5
+        for index, chunk_path in enumerate(chunk_paths):
+            with wave.open(chunk_path, "rb") as source:
+                params = source.getparams()
+                if first_params is None:
+                    first_params = params
+                frames = source.readframes(source.getnframes())
+                duration = source.getnframes() / source.getframerate()
+                combined.extend(frames)
+                if index < len(chunk_paths) - 1:
+                    silence_frames = int(source.getframerate() * pause_seconds)
+                    combined.extend(b"\x00" * silence_frames * source.getnchannels() * source.getsampwidth())
+                    duration += pause_seconds
+                durations.append(duration)
+
+        output = io.BytesIO()
+        with wave.open(output, "wb") as target:
+            target.setnchannels(first_params.nchannels)
+            target.setsampwidth(first_params.sampwidth)
+            target.setframerate(first_params.framerate)
+            target.setcomptype(first_params.comptype, first_params.compname)
+            target.writeframes(bytes(combined))
+
+        return {
+            "audioBase64": base64.b64encode(output.getvalue()).decode("ascii"),
+            "durations": durations,
+        }
+
+
+@app.post("/api/tts")
+async def synthesize_tts(request: TTSRequest):
+    try:
+        return _synthesize_video_audio(request.turns)
+    except FileNotFoundError:
+        raise HTTPException(status_code=503, detail="Windows PowerShell is required for video narration")
+    except Exception as exc:
+        print(f"[TTS Error] {exc}")
+        raise HTTPException(status_code=500, detail=f"Video narration failed: {exc}")
 
 
 # ── REST API Endpoints for MongoDB Storage ───────────────────────
