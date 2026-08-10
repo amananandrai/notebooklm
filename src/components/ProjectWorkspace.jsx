@@ -4,6 +4,8 @@ import { saveDocument, getDocument, deleteDocument, getArtifact, saveArtifact, d
 import MindMapViewer from './MindMapViewer';
 import AudioPlayer from './AudioPlayer';
 import SlideDeckViewer from './SlideDeckViewer';
+import SlidesWithImagesViewer from './SlidesWithImagesViewer';
+import InfographicViewer from './InfographicViewer';
 import StudyGuideViewer from './StudyGuideViewer';
 import ChatAssistant from './ChatAssistant';
 import VideoStudio from './VideoStudio';
@@ -13,21 +15,25 @@ const MCP_ENDPOINT = window.location.origin.includes('5173') || window.location.
   : '/mcp';
 
 const TABS = [
-  { id: 'mindmap',    label: 'Mind Map',    icon: '🧠' },
-  { id: 'audio',      label: 'Audio',       icon: '🎙️' },
-  { id: 'slides',     label: 'Slides',      icon: '📊' },
-  { id: 'video',      label: 'Video Studio', icon: '🎬' },
-  { id: 'studyguide', label: 'Study Guide', icon: '🎴' },
-  { id: 'chat',       label: 'Chat',        icon: '💬' },
+  { id: 'mindmap',    label: 'Mind Map',        icon: '🧠' },
+  { id: 'audio',      label: 'Audio',           icon: '🎙️' },
+  { id: 'slides',     label: 'Slides',          icon: '📊' },
+  { id: 'slides_img', label: 'Slides + Images', icon: '🖼️' },
+  { id: 'infographic',label: 'Infographic',     icon: '📈' },
+  { id: 'video',      label: 'Video Studio',    icon: '🎬' },
+  { id: 'studyguide', label: 'Study Guide',     icon: '🎴' },
+  { id: 'chat',       label: 'Chat',            icon: '💬' },
 ];
 
 const TAB_META = {
-  mindmap:    { title: 'Mind Map',     desc: 'Gemini will extract the key concepts, sections, and relationships from your PDF and build an interactive hierarchical mind map.',  icon: '🧠', feats: ['Hierarchical nodes', 'Color-coded categories', 'Interactive zoom & pan'] },
-  audio:      { title: 'Audio Overview', desc: 'Gemini will generate a two-host podcast-style conversation exploring the key ideas in your document — just like NotebookLM.', icon: '🎙️', feats: ['Two-host dialogue', 'Natural conversation', 'Document-grounded facts'] },
-  slides:     { title: 'Slide Deck',   desc: 'Gemini will create a professional slide deck with titles, bullets, and speaker notes derived from your PDF\'s real content.',       icon: '📊', feats: ['5 structured slides', 'Speaker notes', 'Real document content'] },
-  video:      { title: '3D Video Studio', desc: 'Visualize your slides and podcast audio in an interactive 3D WebGL Recording Studio with animated low-poly hosts.',      icon: '🎬', feats: ['Live 3D WebGL scene', 'Lipsync avatar animations', 'Synchronized blackboard slides'] },
-  studyguide: { title: 'Study Guide',  desc: 'Gemini will generate flashcards and multiple-choice quiz questions grounded in your PDF to help you study the material.',          icon: '🎴', feats: ['6 flashcards', '4 quiz questions', 'Spaced repetition ready'] },
-  chat:       { title: 'Q&A Chat',     desc: 'Ask anything about your PDF. Gemini will answer every question grounded in the actual document content with citations.',           icon: '💬', feats: ['Document-grounded answers', 'Citations included', 'Natural conversation'] },
+  mindmap:    { title: 'Mind Map',           desc: 'Gemini will extract the key concepts, sections, and relationships from your PDF and build an interactive hierarchical mind map.',  icon: '🧠', feats: ['Hierarchical nodes', 'Color-coded categories', 'Interactive zoom & pan'] },
+  audio:      { title: 'Audio Overview',     desc: 'Gemini will generate a two-host podcast-style conversation exploring the key ideas in your document — just like NotebookLM.', icon: '🎙️', feats: ['Two-host dialogue', 'Natural conversation', 'Document-grounded facts'] },
+  slides:     { title: 'Slide Deck',         desc: 'Gemini will create a professional slide deck with titles, bullets, and speaker notes derived from your PDF\'s real content.',       icon: '📊', feats: ['5 structured slides', 'Speaker notes', 'Real document content'] },
+  slides_img: { title: 'Slides with Images', desc: 'Gemini creates a full slide deck AND generates a unique AI image for each slide using Gemini Imagen — vivid visuals that match your content.', icon: '🖼️', feats: ['AI image per slide via Imagen', 'Full-bleed visual backgrounds', 'Animated slide transitions'] },
+  infographic:{ title: 'Infographic',        desc: 'Gemini analyzes your document and generates a rich visual infographic with key stats, color-coded sections, a timeline, and a key insight.', icon: '📈', feats: ['Key metric stats', 'Section summaries', 'Timeline & key insight'] },
+  video:      { title: '3D Video Studio',    desc: 'Visualize your slides and podcast audio in an interactive 3D WebGL Recording Studio with animated low-poly hosts.',      icon: '🎬', feats: ['Live 3D WebGL scene', 'Lipsync avatar animations', 'Synchronized blackboard slides'] },
+  studyguide: { title: 'Study Guide',        desc: 'Gemini will generate flashcards and multiple-choice quiz questions grounded in your PDF to help you study the material.',          icon: '🎴', feats: ['6 flashcards', '4 quiz questions', 'Spaced repetition ready'] },
+  chat:       { title: 'Q&A Chat',           desc: 'Ask anything about your PDF. Gemini will answer every question grounded in the actual document content with citations.',           icon: '💬', feats: ['Document-grounded answers', 'Citations included', 'Natural conversation'] },
 };
 
 async function callMCP(tool, args) {
@@ -146,10 +152,12 @@ export default function ProjectWorkspace({ project, onBack }) {
     setGenError(prev => ({ ...prev, [key]: null }));
 
     const toolMap = {
-      mindmap:    'generate_mindmap',
-      audio:      'generate_audio_overview',
-      slides:     'generate_slide_deck',
-      studyguide: 'generate_study_guide',
+      mindmap:     'generate_mindmap',
+      audio:       'generate_audio_overview',
+      slides:      'generate_slide_deck',
+      slides_img:  'generate_slides_with_images',
+      infographic: 'generate_infographic',
+      studyguide:  'generate_study_guide',
     };
 
     try {
@@ -227,6 +235,35 @@ export default function ProjectWorkspace({ project, onBack }) {
           }).join('---\n\n');
       }
       
+      else if (tab === 'slides_img') {
+        fileName = `${activeDoc.title.replace('.pdf', '')}_SlidesWithImages.md`;
+        content = `# Slides with Images — ${activeDoc.title}\n\n` +
+          data.map((s, idx) => {
+            let slideStr = `## Slide ${idx + 1}: ${s.title}\n`;
+            if (s.subtitle) slideStr += `*${s.subtitle}*\n\n`;
+            slideStr += (s.bullets || []).map(b => `- ${b}`).join('\n') + '\n\n';
+            if (s.speakerNotes) slideStr += `**Speaker Notes:** *${s.speakerNotes}*\n\n`;
+            if (s.imagePrompt) slideStr += `**Image Prompt:** ${s.imagePrompt}\n\n`;
+            return slideStr;
+          }).join('---\n\n');
+      }
+
+      else if (tab === 'infographic') {
+        fileName = `${activeDoc.title.replace('.pdf', '')}_Infographic.md`;
+        const stats = data.stats || [];
+        const sections = data.sections || [];
+        const timeline = data.timeline || [];
+        content = `# Infographic — ${data.title || activeDoc.title}\n\n`;
+        content += `**Summary:** ${data.subtitle || ''}\n\n`;
+        content += `## Key Metrics\n\n`;
+        content += stats.map(s => `- **${s.label}:** ${s.value} ${s.icon}  \n  *${s.desc}*`).join('\n') + '\n\n';
+        content += `## Sections\n\n`;
+        content += sections.map(s => `### ${s.icon} ${s.title}\n${s.summary}\n`).join('\n');
+        content += `\n## Timeline\n\n`;
+        content += timeline.map(t => `${t.step}. **${t.label}** — ${t.desc}`).join('\n') + '\n\n';
+        if (data.keyInsight) content += `## Key Insight\n\n> ${data.keyInsight}\n`;
+      }
+
       else if (tab === 'studyguide') {
         fileName = `${activeDoc.title.replace('.pdf', '')}_StudyGuide.md`;
         const flashcards = data.flashcards || [];
@@ -442,6 +479,8 @@ export default function ProjectWorkspace({ project, onBack }) {
     if (activeTab === 'mindmap')    return <><div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>{contentHeader}<div style={{ flex: 1, overflow: 'hidden' }}><MindMapViewer data={artifact} /></div></div></>;
     if (activeTab === 'audio')      return <><div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>{contentHeader}<div style={{ flex: 1, overflow: 'hidden' }}><AudioPlayer script={artifact} /></div></div></>;
     if (activeTab === 'slides')     return <><div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>{contentHeader}<div style={{ flex: 1, overflow: 'hidden' }}><SlideDeckViewer slides={artifact} /></div></div></>;
+    if (activeTab === 'slides_img') return <><div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>{contentHeader}<div style={{ flex: 1, overflow: 'hidden' }}><SlidesWithImagesViewer slides={artifact} /></div></div></>;
+    if (activeTab === 'infographic')return <><div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>{contentHeader}<div style={{ flex: 1, overflow: 'hidden' }}><InfographicViewer data={artifact} /></div></div></>;
     if (activeTab === 'studyguide') return <><div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>{contentHeader}<div style={{ flex: 1, overflow: 'hidden' }}><StudyGuideViewer data={artifact} /></div></div></>;
   }
 

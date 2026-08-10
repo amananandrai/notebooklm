@@ -20,6 +20,8 @@ load_dotenv()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 GEMINI_MODEL = "gemini-flash-latest"
 GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}"
+IMAGEN_MODEL = "imagen-3.0-generate-002"
+IMAGEN_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{IMAGEN_MODEL}:predict?key={GEMINI_API_KEY}"
 
 # MongoDB Configuration
 MONGO_URI = os.getenv("MONGO_URI", "mongodb://127.0.0.1:27017")
@@ -299,6 +301,8 @@ async def handle_mcp(request: Request):
                 {"name": "generate_mindmap", "description": "Generate an interactive mind map from document text."},
                 {"name": "generate_audio_overview", "description": "Generate a two-host podcast script from document text."},
                 {"name": "generate_slide_deck", "description": "Generate an executive slide deck from document text."},
+                {"name": "generate_slides_with_images", "description": "Generate a slide deck with AI-generated images per slide using Gemini Imagen."},
+                {"name": "generate_infographic", "description": "Generate a structured infographic JSON from document text."},
                 {"name": "generate_study_guide", "description": "Generate flashcards and quiz questions from document text."},
                 {"name": "answer_question", "description": "Answer a user question grounded in the document."},
             ]}
@@ -320,6 +324,10 @@ async def handle_mcp(request: Request):
                 result = gen_audio(clean_title, text)
             elif tool == "generate_slide_deck":
                 result = gen_slides(clean_title, text)
+            elif tool == "generate_slides_with_images":
+                result = gen_slides_with_images(clean_title, text)
+            elif tool == "generate_infographic":
+                result = gen_infographic(clean_title, text)
             elif tool == "generate_study_guide":
                 result = gen_study_guide(clean_title, text)
             elif tool == "answer_question":
@@ -414,6 +422,95 @@ Return ONLY a valid JSON array of 5 slides (no markdown fences):
   ...
 ]
 Types: "title" for slide 1, "content" for body slides, "summary" for final. All content from actual document."""
+    return parse_json(call_gemini(prompt))
+
+
+def call_imagen(image_prompt: str) -> str:
+    """Call Gemini Imagen API and return base64 PNG data URI, or empty string on failure."""
+    try:
+        payload = json.dumps({
+            "instances": [{"prompt": image_prompt}],
+            "parameters": {"sampleCount": 1, "aspectRatio": "16:9"}
+        }).encode()
+        req = urllib.request.Request(
+            IMAGEN_URL,
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST"
+        )
+        resp = urllib.request.urlopen(req, timeout=30)
+        data = json.loads(resp.read().decode())
+        b64 = data["predictions"][0]["bytesBase64Encoded"]
+        return f"data:image/png;base64,{b64}"
+    except Exception as e:
+        print(f"[Imagen Error] prompt='{image_prompt[:60]}' error={e}")
+        return ""
+
+
+def gen_slides_with_images(title: str, text: str) -> list:
+    """Generate slides with AI image prompts, then call Imagen for each slide."""
+    prompt = f"""You are a professional AI presentation designer. Create a visual slide deck from this document.
+
+Document: {title}
+Text: {text}
+
+Return ONLY a valid JSON array of 5 slides (no markdown fences):
+[
+  {{
+    "id": 1, "title": "<title>", "subtitle": "<subtitle>",
+    "type": "title",
+    "bullets": ["<bullet from doc>", "<bullet from doc>", "<bullet from doc>"],
+    "speakerNotes": "<notes grounded in document>",
+    "imagePrompt": "<vivid, detailed image generation prompt (15-25 words) describing a visual that fits this slide — avoid text, charts, or graphs, focus on concept imagery>"
+  }},
+  ...
+]
+Types: "title" for slide 1, "content" for body slides, "summary" for final.
+All content must be grounded in actual document content. imagePrompt must be a vivid, evocative visual scene description."""
+
+    slides = parse_json(call_gemini(prompt))
+
+    # Generate an image for each slide using Imagen
+    for slide in slides:
+        img_prompt = slide.get("imagePrompt", f"{title} concept visualization")
+        slide["imageData"] = call_imagen(img_prompt)
+
+    return slides
+
+
+def gen_infographic(title: str, text: str) -> dict:
+    prompt = f"""You are an expert data visualization and infographic designer. Analyze this document and create a richly structured infographic layout.
+
+Document: {title}
+Text: {text}
+
+Return ONLY valid JSON (no markdown fences):
+{{
+  "title": "<concise document title>",
+  "subtitle": "<one powerful sentence summarizing the document>",
+  "accentColor": "<a vivid hex color that fits the topic, e.g. #6366f1>",
+  "accentColor2": "<a second complementary hex color>",
+  "stats": [
+    {{"label": "<metric name>", "value": "<number or short value>", "icon": "<single relevant emoji>", "desc": "<8-word context>"}},
+    {{"label": "<metric name>", "value": "<value>", "icon": "<emoji>", "desc": "<8-word context>"}},
+    {{"label": "<metric name>", "value": "<value>", "icon": "<emoji>", "desc": "<8-word context>"}},
+    {{"label": "<metric name>", "value": "<value>", "icon": "<emoji>", "desc": "<8-word context>"}}
+  ],
+  "sections": [
+    {{"title": "<section name>", "summary": "<2-sentence summary from doc>", "icon": "<emoji>", "color": "<hex>"}},
+    {{"title": "<section name>", "summary": "<2-sentence summary>", "icon": "<emoji>", "color": "<hex>"}},
+    {{"title": "<section name>", "summary": "<2-sentence summary>", "icon": "<emoji>", "color": "<hex>"}}
+  ],
+  "timeline": [
+    {{"step": 1, "label": "<phase or step name>", "desc": "<one sentence>"}},
+    {{"step": 2, "label": "<phase or step name>", "desc": "<one sentence>"}},
+    {{"step": 3, "label": "<phase or step name>", "desc": "<one sentence>"}},
+    {{"step": 4, "label": "<phase or step name>", "desc": "<one sentence>"}}
+  ],
+  "keyInsight": "<one powerful takeaway quote or key insight from the document, 15-25 words>"
+}}
+
+All fields must be grounded in actual document content. No placeholders."""
     return parse_json(call_gemini(prompt))
 
 
