@@ -61,6 +61,17 @@ export default function ChatAssistant({ docTitle, onAskQuestion, initialMessages
     }
   }
 
+  function handleDownloadChat() {
+    const text = messages.map(m => `**${m.sender === 'user' ? 'User' : 'Gemini AI'}**:\n${m.text}`).join('\n\n');
+    const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${docTitle.replace('.pdf', '')}_ChatLog.md`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
   function renderText(text) {
     // Simple markdown: bold, newlines
     return text
@@ -107,8 +118,20 @@ export default function ChatAssistant({ docTitle, onAskQuestion, initialMessages
       </div>
 
       <div className="chat-input-area">
-        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 8 }}>
-          📄 Chatting about: <span style={{ color: 'var(--text-secondary)' }}>{docTitle}</span>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11, color: 'var(--text-muted)', marginBottom: 8 }}>
+          <div>
+            📄 Chatting about: <span style={{ color: 'var(--text-secondary)' }}>{docTitle}</span>
+          </div>
+          {messages.length > 1 && (
+            <button
+              onClick={handleDownloadChat}
+              style={{ background: 'none', border: 'none', color: 'var(--accent-lit)', cursor: 'pointer', padding: 0, fontSize: 11, fontFamily: 'inherit', fontWeight: 600 }}
+              onMouseEnter={e => e.target.style.textDecoration = 'underline'}
+              onMouseLeave={e => e.target.style.textDecoration = 'none'}
+            >
+              ⬇ Download Chat Log
+            </button>
+          )}
         </div>
         <div className="chat-input-row">
           <textarea

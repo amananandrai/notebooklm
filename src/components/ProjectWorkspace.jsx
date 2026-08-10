@@ -165,6 +165,100 @@ export default function ProjectWorkspace({ project, onBack }) {
     }
   }
 
+  function handleDownloadArtifact(tab) {
+    if (!activeDocId || !activeDoc) return;
+    
+    let content = '';
+    let fileName = '';
+    const mimeType = 'text/plain';
+
+    if (tab === 'video') {
+      fileName = `${activeDoc.title.replace('.pdf', '')}_Presentation_Script.md`;
+      const audioKey = `${activeDocId}_audio`;
+      const slidesKey = `${activeDocId}_slides`;
+      const audioData = artifacts[audioKey] || [];
+      const slidesData = artifacts[slidesKey] || [];
+      
+      content = `# Full 3D Presentation Script & Slides — ${activeDoc.title}\n\n`;
+      content += `## 🎙️ Podcast Audio Dialogue Script\n\n` + 
+        audioData.map(turn => `**${turn.speaker}**: ${turn.text}`).join('\n\n') + '\n\n';
+      content += `---\n\n## 📊 Slide Deck Outline\n\n` + 
+        slidesData.map((s, idx) => `### Slide ${idx + 1}: ${s.title}\n*Bullets:*\n${(s.bullets || []).map(b => `- ${b}`).join('\n')}\n\n*Speaker Notes:* ${s.speakerNotes || 'N/A'}\n`).join('\n---\n\n');
+    }
+    
+    else {
+      const key = `${activeDocId}_${tab}`;
+      const data = artifacts[key];
+      if (!data) return;
+
+      if (tab === 'mindmap') {
+        fileName = `${activeDoc.title.replace('.pdf', '')}_MindMap.md`;
+        
+        function formatNode(node, depth = 0) {
+          let str = '  '.repeat(depth) + `- **${node.label}** (${node.category || 'Concept'})\n`;
+          if (node.description) {
+            str += '  '.repeat(depth + 1) + `*Description:* ${node.description}\n`;
+          }
+          if (node.children?.length) {
+            node.children.forEach(c => {
+              str += formatNode(c, depth + 1);
+            });
+          }
+          return str;
+        }
+        content = `# Mind Map Tree — ${activeDoc.title}\n\n${formatNode(data)}`;
+      }
+      
+      else if (tab === 'audio') {
+        fileName = `${activeDoc.title.replace('.pdf', '')}_AudioScript.txt`;
+        content = `NotebookLM Podcast Dialogue Script - ${activeDoc.title}\n\n` + 
+          data.map(turn => `[${turn.speaker}]: ${turn.text}`).join('\n\n');
+      }
+      
+      else if (tab === 'slides') {
+        fileName = `${activeDoc.title.replace('.pdf', '')}_Slides.md`;
+        content = `# Slides Presentation Outline — ${activeDoc.title}\n\n` + 
+          data.map((s, idx) => {
+            let slideStr = `## Slide ${idx + 1}: ${s.title}\n`;
+            if (s.subtitle) slideStr += `*${s.subtitle}*\n\n`;
+            slideStr += (s.bullets || []).map(b => `- ${b}`).join('\n') + '\n\n';
+            if (s.speakerNotes) slideStr += `**Speaker Notes:** *${s.speakerNotes}*\n\n`;
+            return slideStr;
+          }).join('---\n\n');
+      }
+      
+      else if (tab === 'studyguide') {
+        fileName = `${activeDoc.title.replace('.pdf', '')}_StudyGuide.md`;
+        const flashcards = data.flashcards || [];
+        const quiz = data.quiz || [];
+        
+        content = `# Study Guide — ${activeDoc.title}\n\n`;
+        content += `## 🎴 Flashcards (${flashcards.length})\n\n`;
+        content += flashcards.map((f, i) => `### Flashcard ${i + 1}\n**Category:** ${f.category}\n**Question:** ${f.question}\n**Answer:** ${f.answer}\n`).join('\n---\n\n');
+        
+        content += `\n\n## 🧩 Quiz Questions (${quiz.length})\n\n`;
+        content += quiz.map((q, i) => {
+          let qStr = `### Question ${i + 1}\n**Question:** ${q.question}\n`;
+          qStr += (q.options || []).map((o, oi) => `   ${String.fromCharCode(65 + oi)}) ${o}`).join('\n') + '\n';
+          qStr += `**Correct Option:** ${String.fromCharCode(65 + q.correctIndex)}\n`;
+          if (q.explanation) qStr += `**Explanation:** ${q.explanation}\n`;
+          return qStr;
+        }).join('\n---\n\n');
+      }
+    }
+
+    if (!content) return;
+
+    // Trigger standard browser download anchor
+    const blob = new Blob([content], { type: `${mimeType};charset=utf-8` });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = fileName;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
   // Chat sends a question to MCP
   async function handleChatQuestion(question) {
     const doc = await getDocument(activeDocId);
@@ -242,10 +336,29 @@ export default function ProjectWorkspace({ project, onBack }) {
       }
 
       return (
-        <VideoStudio
-          slides={slidesData}
-          script={audioData}
-        />
+        <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+          <div className="studio-content-header">
+            <div className="studio-content-title">
+              🎬 3D Video Studio
+              <span className="studio-content-badge">WebGL Interactive</span>
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                className="btn-regen"
+                onClick={() => handleDownloadArtifact('video')}
+                style={{ background: 'var(--bg-active)', borderColor: 'var(--border-hi)', color: 'var(--text-primary)' }}
+              >
+                ⬇ Export Presentation Script
+              </button>
+            </div>
+          </div>
+          <div style={{ flex: 1, overflow: 'hidden' }}>
+            <VideoStudio
+              slides={slidesData}
+              script={audioData}
+            />
+          </div>
+        </div>
       );
     }
 
@@ -304,6 +417,13 @@ export default function ProjectWorkspace({ project, onBack }) {
           <span className="studio-content-badge">Gemini Generated</span>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
+          <button
+            className="btn-regen"
+            onClick={() => handleDownloadArtifact(activeTab)}
+            style={{ background: 'var(--bg-active)', borderColor: 'var(--border-hi)', color: 'var(--text-primary)' }}
+          >
+            ⬇ Download
+          </button>
           {activeTab !== 'video' && (
             <button
               className="btn-regen"
