@@ -427,41 +427,25 @@ Types: "title" for slide 1, "content" for body slides, "summary" for final. All 
     return parse_json(call_gemini(prompt))
 
 
-def call_nano_banana(image_prompt: str) -> str:
-    """Call Nano Banana 2 (gemini-3.1-flash-image) and return base64 data URI, or empty string on failure."""
-    try:
-        payload = json.dumps({
-            "contents": [{
-                "parts": [{"text": image_prompt}]
-            }],
-            "generationConfig": {
-                "responseModalities": ["IMAGE", "TEXT"]
-            }
-        }).encode()
-        req = urllib.request.Request(
-            NANO_BANANA_URL,
-            data=payload,
-            headers={"Content-Type": "application/json"},
-            method="POST"
-        )
-        resp = urllib.request.urlopen(req, timeout=60)
-        resp_data = json.loads(resp.read().decode())
 
-        for candidate in resp_data.get("candidates", []):
-            for part in candidate.get("content", {}).get("parts", []):
-                if "inlineData" in part:
-                    mime = part["inlineData"].get("mimeType", "image/png")
-                    b64 = part["inlineData"].get("data", "")
-                    return f"data:{mime};base64,{b64}"
-        print(f"[Nano Banana] No inlineData found in response")
-        return ""
-    except Exception as e:
-        print(f"[Nano Banana Error] prompt='{image_prompt[:60]}' error={e}")
-        return ""
+def call_pollinations(image_prompt: str, width: int = 1280, height: int = 720, seed: int = 42) -> str:
+    """Generate an image via Pollinations.ai (free, no API key) and return a URL.
+    Pollinations.ai is an open-source free image generation service."""
+    import urllib.parse
+    # Encode the prompt for URL
+    encoded = urllib.parse.quote(image_prompt[:400])
+    url = f"https://image.pollinations.ai/prompt/{encoded}?width={width}&height={height}&seed={seed}&nologo=true&model=flux"
+    # Verify the URL is reachable (HEAD request)
+    try:
+        req = urllib.request.Request(url, method='HEAD')
+        urllib.request.urlopen(req, timeout=10)
+    except Exception:
+        pass  # Return the URL anyway — browser will load it directly
+    return url
 
 
 def gen_slides_with_images(title: str, text: str) -> list:
-    """Generate slides with AI image prompts, then call Nano Banana 2 for each slide image."""
+    """Generate slides with AI image prompts via Gemini, then build Pollinations.ai image URLs."""
     prompt = f"""You are a professional AI presentation designer. Create a visual slide deck from this document.
 
 Document: {title}
@@ -474,102 +458,78 @@ Return ONLY a valid JSON array of 5 slides (no markdown fences):
     "type": "title",
     "bullets": ["<bullet from doc>", "<bullet from doc>", "<bullet from doc>"],
     "speakerNotes": "<notes grounded in document>",
-    "imagePrompt": "<vivid, detailed image generation prompt (15-25 words) describing a visual that fits this slide — avoid text, charts, or graphs, focus on concept imagery>"
+    "imagePrompt": "<vivid, detailed image description (10-20 words), cinematic scene, no text, concept art style>"
   }},
   ...
 ]
 Types: \"title\" for slide 1, \"content\" for body slides, \"summary\" for final.
-All content must be grounded in actual document content. imagePrompt must be a vivid, evocative visual scene description."""
+All content must be grounded in actual document content. imagePrompt must be a vivid visual scene (no text in image)."""
 
     slides = parse_json(call_gemini(prompt))
 
-    # Generate an image for each slide using Nano Banana 2
-    for slide in slides:
-        img_prompt = slide.get("imagePrompt", f"{title} concept visualization, cinematic, vibrant, dark background")
-        slide["imageData"] = call_nano_banana(img_prompt)
+    # Build a Pollinations.ai URL for each slide
+    for i, slide in enumerate(slides):
+        img_prompt = slide.get("imagePrompt", f"{title} concept, cinematic, dark background")
+        # Add style keywords for consistency
+        full_prompt = f"{img_prompt}, cinematic lighting, 8k, dark moody atmosphere, vibrant colors, concept art"
+        slide["imageUrl"] = call_pollinations(full_prompt, width=1280, height=720, seed=i * 17 + 7)
+        slide["imageData"] = slide["imageUrl"]  # keep imageData key for viewer compatibility
 
     return slides
 
 
 def gen_infographic(title: str, text: str) -> dict:
-    """Generate a visual infographic image using Gemini 2.0 Flash Image Generation."""
+    """Generate infographic using Pollinations.ai (free, no API key required)."""
+    import urllib.parse
 
-    # Step 1: Ask Gemini Flash to extract a concise title + subtitle for the infographic
-    meta_prompt = f"""From this document, extract:
+    # Step 1: Extract key facts/stats/sections from the document using Gemini
+    meta_prompt = f"""From this document extract:
 1. A concise title (max 8 words)
-2. A one-sentence subtitle summarizing the key idea
+2. A one-sentence subtitle
+3. 4 key statistics or facts (number + label)
+4. 3 main topics or sections
 
 Document: {title}
-Text: {text[:4000]}
+Text: {text[:5000]}
 
-Return ONLY valid JSON: {{"title": "...", "subtitle": "..."}}"""
+Return ONLY valid JSON:
+{{"title": "...", "subtitle": "...",
+  "stats": [{{"value": "42", "label": "metric"}}, ...],
+  "topics": ["topic1", "topic2", "topic3"]}}"""
     try:
         meta = parse_json(call_gemini(meta_prompt))
-        infographic_title = meta.get("title", title)
-        infographic_subtitle = meta.get("subtitle", "")
     except Exception:
-        infographic_title = title
-        infographic_subtitle = ""
+        meta = {}
 
-    # Step 2: Build a detailed image-generation prompt for the infographic
-    image_prompt = f"""Create a professional, visually stunning infographic poster about: "{infographic_title}".
+    infographic_title = meta.get("title", title)
+    infographic_subtitle = meta.get("subtitle", "")
+    stats = meta.get("stats", [])
+    topics = meta.get("topics", [])
 
-Context summary: {infographic_subtitle}
+    # Step 2: Build a rich visual infographic prompt for Pollinations.ai
+    stats_text = ", ".join([f"{s.get('value','')} {s.get('label','')}" for s in stats[:4]])
+    topics_text = " | ".join(topics[:3])
 
-Key content from the document:
-{text[:3000]}
+    infographic_prompt = (
+        f"professional infographic poster, dark navy background, neon accent colors, "
+        f"bold title '{infographic_title}', subtitle text, "
+        f"large statistics numbers {stats_text}, "
+        f"three color-coded sections {topics_text}, "
+        f"timeline flow diagram at bottom, "
+        f"clean modern typography, white text, glowing accent lines, "
+        f"premium business report style, 4k, high detail"
+    )
 
-Design requirements:
-- Style: Modern dark-themed infographic with vibrant accent colors (deep navy/dark background, neon or vivid accent colors)
-- Layout: Vertical poster layout with clear visual hierarchy
-- Include: A bold title at the top, 3-5 key statistics or facts with large numbers and icons, 3 color-coded sections with brief text, a visual timeline or flow diagram at the bottom
-- Typography: Clean, bold sans-serif fonts. Large numbers for stats. White text on dark background.
-- Visual elements: Icons, dividers, accent lines, geometric shapes for visual interest
-- NO placeholder text. All text must come from the document content above.
-- Make it look like a premium professional infographic that would appear in a business report or magazine."""
+    image_url = call_pollinations(infographic_prompt, width=800, height=1100, seed=99)
 
-    # Step 3: Call Nano Banana 2 (gemini-3.1-flash-image)
-    try:
-        payload = json.dumps({
-            "contents": [{
-                "parts": [{"text": image_prompt}]
-            }],
-            "generationConfig": {
-                "responseModalities": ["IMAGE", "TEXT"]
-            }
-        }).encode()
-        req = urllib.request.Request(
-            NANO_BANANA_URL,
-            data=payload,
-            headers={"Content-Type": "application/json"},
-            method="POST"
-        )
-        resp = urllib.request.urlopen(req, timeout=60)
-        resp_data = json.loads(resp.read().decode())
-
-        # Extract the inline image from the response
-        image_data = ""
-        for candidate in resp_data.get("candidates", []):
-            for part in candidate.get("content", {}).get("parts", []):
-                if "inlineData" in part:
-                    mime = part["inlineData"].get("mimeType", "image/png")
-                    b64 = part["inlineData"].get("data", "")
-                    image_data = f"data:{mime};base64,{b64}"
-                    break
-            if image_data:
-                break
-
-        return {
-            "title": infographic_title,
-            "subtitle": infographic_subtitle,
-            "imageData": image_data,
-            "model": NANO_BANANA_MODEL
-        }
-
-    except Exception as e:
-        print(f"[Nano Banana Error] infographic generation failed: {e}")
-        # Fallback: return structured JSON for HTML rendering
-        return gen_infographic_structured(title, text)
+    return {
+        "title": infographic_title,
+        "subtitle": infographic_subtitle,
+        "imageData": image_url,
+        "model": "pollinations-flux",
+        "stats": stats,
+        "topics": topics,
+    }
 
 
 def gen_infographic_structured(title: str, text: str) -> dict:
