@@ -3,7 +3,7 @@ import json
 import re
 import os
 import urllib.request
-from typing import List, Optional
+from typing import Any, List, Optional, Union
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
@@ -72,7 +72,7 @@ class ArtifactSchema(BaseModel):
     projectId: str
     docId: str
     featureType: str
-    data: dict
+    data: Union[dict, list, Any]
 
 
 # ── REST API Endpoints for MongoDB Storage ───────────────────────
