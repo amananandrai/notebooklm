@@ -428,13 +428,13 @@ Types: "title" for slide 1, "content" for body slides, "summary" for final. All 
 
 
 
-def call_pollinations(image_prompt: str, width: int = 1280, height: int = 720, seed: int = 42) -> str:
+def call_pollinations(image_prompt: str, width: int = 1280, height: int = 720, seed: int = 42, model: str = "flux") -> str:
     """Generate an image via Pollinations.ai (free, no API key) and return a URL.
     Pollinations.ai is an open-source free image generation service."""
     import urllib.parse
     # Encode the prompt for URL
     encoded = urllib.parse.quote(image_prompt[:400])
-    url = f"https://image.pollinations.ai/prompt/{encoded}?width={width}&height={height}&seed={seed}&nologo=true&model=flux"
+    url = f"https://image.pollinations.ai/prompt/{encoded}?width={width}&height={height}&seed={seed}&nologo=true&model={model}"
     # Verify the URL is reachable (HEAD request)
     try:
         req = urllib.request.Request(url, method='HEAD')
@@ -467,12 +467,12 @@ All content must be grounded in actual document content. imagePrompt must be a v
 
     slides = parse_json(call_gemini(prompt))
 
-    # Build a Pollinations.ai URL for each slide
+    # Build a Pollinations.ai URL for each slide (using flux-realism model)
     for i, slide in enumerate(slides):
         img_prompt = slide.get("imagePrompt", f"{title} concept, cinematic, dark background")
         # Add style keywords for consistency
-        full_prompt = f"{img_prompt}, cinematic lighting, 8k, dark moody atmosphere, vibrant colors, concept art"
-        slide["imageUrl"] = call_pollinations(full_prompt, width=1280, height=720, seed=i * 17 + 7)
+        full_prompt = f"{img_prompt}, cinematic lighting, 8k, dark moody atmosphere, vibrant colors, photo realistic"
+        slide["imageUrl"] = call_pollinations(full_prompt, width=1280, height=720, seed=i * 17 + 7, model="flux-realism")
         slide["imageData"] = slide["imageUrl"]  # keep imageData key for viewer compatibility
 
     return slides
@@ -506,27 +506,27 @@ Return ONLY valid JSON:
     stats = meta.get("stats", [])
     topics = meta.get("topics", [])
 
-    # Step 2: Build a rich visual infographic prompt for Pollinations.ai
+    # Step 2: Build a rich visual infographic prompt for Pollinations.ai (using flux-3d model)
     stats_text = ", ".join([f"{s.get('value','')} {s.get('label','')}" for s in stats[:4]])
     topics_text = " | ".join(topics[:3])
 
     infographic_prompt = (
-        f"professional infographic poster, dark navy background, neon accent colors, "
+        f"3d isometric infographic poster, modern tech design, dark navy background, neon accent colors, "
         f"bold title '{infographic_title}', subtitle text, "
         f"large statistics numbers {stats_text}, "
-        f"three color-coded sections {topics_text}, "
+        f"three color-coded 3d sections {topics_text}, "
         f"timeline flow diagram at bottom, "
         f"clean modern typography, white text, glowing accent lines, "
-        f"premium business report style, 4k, high detail"
+        f"3d render style, 4k, high detail"
     )
 
-    image_url = call_pollinations(infographic_prompt, width=800, height=1100, seed=99)
+    image_url = call_pollinations(infographic_prompt, width=800, height=1100, seed=99, model="flux-3d")
 
     return {
         "title": infographic_title,
         "subtitle": infographic_subtitle,
         "imageData": image_url,
-        "model": "pollinations-flux",
+        "model": "pollinations-flux-3d",
         "stats": stats,
         "topics": topics,
     }
