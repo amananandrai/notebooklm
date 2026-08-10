@@ -11,6 +11,10 @@ export default function VideoStudio({ slides = [], script = [] }) {
   const [elapsed, setElapsed]   = useState(0);
   const [currentSlideIdx, setCurrentSlideIdx] = useState(0);
 
+  const [isRecording, setIsRecording] = useState(false);
+  const mediaRecorderRef = useRef(null);
+  const recordedChunksRef = useRef([]);
+
   const synthRef = useRef(window.speechSynthesis);
   const timerRef = useRef(null);
   const turnIdxRef = useRef(0);
@@ -22,6 +26,62 @@ export default function VideoStudio({ slides = [], script = [] }) {
   const hostBRef = useRef(null); // Host B mesh group
   const boardTextureRef = useRef(null); // canvas texture for chalkboard
   const animationFrameRef = useRef(null);
+
+  const startRecording = useCallback(() => {
+    if (!rendererRef.current) return;
+    recordedChunksRef.current = [];
+
+    const canvas = rendererRef.current.domElement;
+    const stream = canvas.captureStream(30);
+
+    let options = { mimeType: 'video/webm;codecs=vp9' };
+    if (!MediaRecorder.isTypeSupported(options.mimeType)) {
+      options = { mimeType: 'video/webm' };
+    }
+
+    try {
+      const recorder = new MediaRecorder(stream, options);
+      mediaRecorderRef.current = recorder;
+
+      recorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) {
+          recordedChunksRef.current.push(e.data);
+        }
+      };
+
+      recorder.onstop = () => {
+        const blob = new Blob(recordedChunksRef.current, { type: 'video/webm' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `presentation_3d_recording.webm`;
+        a.click();
+        URL.revokeObjectURL(url);
+      };
+
+      recorder.start();
+      setIsRecording(true);
+
+      // Autoplay speech synthesis
+      if (!synthRef.current.speaking) {
+        synthRef.current.cancel();
+        setElapsed(0);
+        setPlaying(true);
+        setPaused(false);
+        turnIdxRef.current = 0;
+        speakTurn(0);
+      }
+    } catch (err) {
+      console.error('Error starting video capture:', err);
+    }
+  }, [playing, speakTurn]);
+
+  const stopRecording = useCallback(() => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop();
+    }
+    setIsRecording(false);
+  }, []);
 
   const turns = Array.isArray(script) ? script : [];
   const slideList = Array.isArray(slides) ? slides : [];
@@ -441,7 +501,20 @@ export default function VideoStudio({ slides = [], script = [] }) {
           overflow: 'hidden', borderBottom: '1px solid var(--border)',
           boxShadow: 'inset 0 4px 20px #0008',
         }}
-      />
+      >
+        {isRecording && (
+          <div style={{
+            position: 'absolute', top: 16, right: 16,
+            background: 'rgba(0,0,0,0.65)', border: '1px solid var(--red)',
+            borderRadius: 99, padding: '6px 14px', fontSize: 11, fontWeight: 700,
+            color: 'var(--red)', display: 'flex', alignItems: 'center', gap: 6,
+            zIndex: 10, animation: 'loadPulse 1.5s infinite'
+          }}>
+            <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--red)' }} />
+            REC VISUALS
+          </div>
+        )}
+      </div>
 
       {/* Video Studio Controls */}
       <div className="audio-controls" style={{ background: 'var(--bg-elevated)', padding: '14px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
@@ -452,6 +525,27 @@ export default function VideoStudio({ slides = [], script = [] }) {
           </button>
           <button className="audio-btn" onClick={handleStop}>⏹</button>
           <span className="audio-time" style={{ marginLeft: 8 }}>{fmtTime(elapsed)}</span>
+          
+          <button
+            onClick={isRecording ? stopRecording : startRecording}
+            style={{
+              marginLeft: 12,
+              background: isRecording ? 'var(--red)' : 'var(--bg-active)',
+              color: isRecording ? 'white' : 'var(--text-primary)',
+              border: '1px solid',
+              borderColor: isRecording ? 'var(--red)' : 'var(--border-hi)',
+              fontSize: 12,
+              padding: '6px 14px',
+              borderRadius: 8,
+              fontWeight: 600,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6
+            }}
+          >
+            <span>{isRecording ? '⏹ Stop Recording' : '🎥 Record Visuals'}</span>
+          </button>
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
