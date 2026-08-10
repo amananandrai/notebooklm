@@ -20,10 +20,10 @@ load_dotenv()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 GEMINI_MODEL = "gemini-flash-latest"
 GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}"
-IMAGEN_MODEL = "imagen-3.0-generate-002"
-IMAGEN_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{IMAGEN_MODEL}:predict?key={GEMINI_API_KEY}"
-FLASH_IMAGE_MODEL = "gemini-2.0-flash-preview-image-generation"
-FLASH_IMAGE_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{FLASH_IMAGE_MODEL}:generateContent?key={GEMINI_API_KEY}"
+
+# Nano Banana 2 = gemini-3.1-flash-image (confirmed displayName)
+NANO_BANANA_MODEL = "gemini-3.1-flash-image"
+NANO_BANANA_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{NANO_BANANA_MODEL}:generateContent?key={GEMINI_API_KEY}"
 
 # MongoDB Configuration
 MONGO_URI = os.getenv("MONGO_URI", "mongodb://127.0.0.1:27017")
@@ -427,30 +427,41 @@ Types: "title" for slide 1, "content" for body slides, "summary" for final. All 
     return parse_json(call_gemini(prompt))
 
 
-def call_imagen(image_prompt: str) -> str:
-    """Call Gemini Imagen API and return base64 PNG data URI, or empty string on failure."""
+def call_nano_banana(image_prompt: str) -> str:
+    """Call Nano Banana 2 (gemini-3.1-flash-image) and return base64 data URI, or empty string on failure."""
     try:
         payload = json.dumps({
-            "instances": [{"prompt": image_prompt}],
-            "parameters": {"sampleCount": 1, "aspectRatio": "16:9"}
+            "contents": [{
+                "parts": [{"text": image_prompt}]
+            }],
+            "generationConfig": {
+                "responseModalities": ["IMAGE", "TEXT"]
+            }
         }).encode()
         req = urllib.request.Request(
-            IMAGEN_URL,
+            NANO_BANANA_URL,
             data=payload,
             headers={"Content-Type": "application/json"},
             method="POST"
         )
-        resp = urllib.request.urlopen(req, timeout=30)
-        data = json.loads(resp.read().decode())
-        b64 = data["predictions"][0]["bytesBase64Encoded"]
-        return f"data:image/png;base64,{b64}"
+        resp = urllib.request.urlopen(req, timeout=60)
+        resp_data = json.loads(resp.read().decode())
+
+        for candidate in resp_data.get("candidates", []):
+            for part in candidate.get("content", {}).get("parts", []):
+                if "inlineData" in part:
+                    mime = part["inlineData"].get("mimeType", "image/png")
+                    b64 = part["inlineData"].get("data", "")
+                    return f"data:{mime};base64,{b64}"
+        print(f"[Nano Banana] No inlineData found in response")
+        return ""
     except Exception as e:
-        print(f"[Imagen Error] prompt='{image_prompt[:60]}' error={e}")
+        print(f"[Nano Banana Error] prompt='{image_prompt[:60]}' error={e}")
         return ""
 
 
 def gen_slides_with_images(title: str, text: str) -> list:
-    """Generate slides with AI image prompts, then call Imagen for each slide."""
+    """Generate slides with AI image prompts, then call Nano Banana 2 for each slide image."""
     prompt = f"""You are a professional AI presentation designer. Create a visual slide deck from this document.
 
 Document: {title}
@@ -467,15 +478,15 @@ Return ONLY a valid JSON array of 5 slides (no markdown fences):
   }},
   ...
 ]
-Types: "title" for slide 1, "content" for body slides, "summary" for final.
+Types: \"title\" for slide 1, \"content\" for body slides, \"summary\" for final.
 All content must be grounded in actual document content. imagePrompt must be a vivid, evocative visual scene description."""
 
     slides = parse_json(call_gemini(prompt))
 
-    # Generate an image for each slide using Imagen
+    # Generate an image for each slide using Nano Banana 2
     for slide in slides:
-        img_prompt = slide.get("imagePrompt", f"{title} concept visualization")
-        slide["imageData"] = call_imagen(img_prompt)
+        img_prompt = slide.get("imagePrompt", f"{title} concept visualization, cinematic, vibrant, dark background")
+        slide["imageData"] = call_nano_banana(img_prompt)
 
     return slides
 
@@ -517,19 +528,18 @@ Design requirements:
 - NO placeholder text. All text must come from the document content above.
 - Make it look like a premium professional infographic that would appear in a business report or magazine."""
 
-    # Step 3: Call Gemini Flash Image Generation
+    # Step 3: Call Nano Banana 2 (gemini-3.1-flash-image)
     try:
         payload = json.dumps({
             "contents": [{
                 "parts": [{"text": image_prompt}]
             }],
             "generationConfig": {
-                "responseModalities": ["IMAGE"],
-                "numberOfImages": 1
+                "responseModalities": ["IMAGE", "TEXT"]
             }
         }).encode()
         req = urllib.request.Request(
-            FLASH_IMAGE_URL,
+            NANO_BANANA_URL,
             data=payload,
             headers={"Content-Type": "application/json"},
             method="POST"
@@ -553,11 +563,11 @@ Design requirements:
             "title": infographic_title,
             "subtitle": infographic_subtitle,
             "imageData": image_data,
-            "model": FLASH_IMAGE_MODEL
+            "model": NANO_BANANA_MODEL
         }
 
     except Exception as e:
-        print(f"[Flash Image Error] infographic generation failed: {e}")
+        print(f"[Nano Banana Error] infographic generation failed: {e}")
         # Fallback: return structured JSON for HTML rendering
         return gen_infographic_structured(title, text)
 
