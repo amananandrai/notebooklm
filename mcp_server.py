@@ -22,6 +22,8 @@ GEMINI_MODEL = "gemini-flash-latest"
 GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}"
 IMAGEN_MODEL = "imagen-3.0-generate-002"
 IMAGEN_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{IMAGEN_MODEL}:predict?key={GEMINI_API_KEY}"
+FLASH_IMAGE_MODEL = "gemini-2.0-flash-preview-image-generation"
+FLASH_IMAGE_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{FLASH_IMAGE_MODEL}:generateContent?key={GEMINI_API_KEY}"
 
 # MongoDB Configuration
 MONGO_URI = os.getenv("MONGO_URI", "mongodb://127.0.0.1:27017")
@@ -479,6 +481,89 @@ All content must be grounded in actual document content. imagePrompt must be a v
 
 
 def gen_infographic(title: str, text: str) -> dict:
+    """Generate a visual infographic image using Gemini 2.0 Flash Image Generation."""
+
+    # Step 1: Ask Gemini Flash to extract a concise title + subtitle for the infographic
+    meta_prompt = f"""From this document, extract:
+1. A concise title (max 8 words)
+2. A one-sentence subtitle summarizing the key idea
+
+Document: {title}
+Text: {text[:4000]}
+
+Return ONLY valid JSON: {{"title": "...", "subtitle": "..."}}"""
+    try:
+        meta = parse_json(call_gemini(meta_prompt))
+        infographic_title = meta.get("title", title)
+        infographic_subtitle = meta.get("subtitle", "")
+    except Exception:
+        infographic_title = title
+        infographic_subtitle = ""
+
+    # Step 2: Build a detailed image-generation prompt for the infographic
+    image_prompt = f"""Create a professional, visually stunning infographic poster about: "{infographic_title}".
+
+Context summary: {infographic_subtitle}
+
+Key content from the document:
+{text[:3000]}
+
+Design requirements:
+- Style: Modern dark-themed infographic with vibrant accent colors (deep navy/dark background, neon or vivid accent colors)
+- Layout: Vertical poster layout with clear visual hierarchy
+- Include: A bold title at the top, 3-5 key statistics or facts with large numbers and icons, 3 color-coded sections with brief text, a visual timeline or flow diagram at the bottom
+- Typography: Clean, bold sans-serif fonts. Large numbers for stats. White text on dark background.
+- Visual elements: Icons, dividers, accent lines, geometric shapes for visual interest
+- NO placeholder text. All text must come from the document content above.
+- Make it look like a premium professional infographic that would appear in a business report or magazine."""
+
+    # Step 3: Call Gemini Flash Image Generation
+    try:
+        payload = json.dumps({
+            "contents": [{
+                "parts": [{"text": image_prompt}]
+            }],
+            "generationConfig": {
+                "responseModalities": ["IMAGE"],
+                "numberOfImages": 1
+            }
+        }).encode()
+        req = urllib.request.Request(
+            FLASH_IMAGE_URL,
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST"
+        )
+        resp = urllib.request.urlopen(req, timeout=60)
+        resp_data = json.loads(resp.read().decode())
+
+        # Extract the inline image from the response
+        image_data = ""
+        for candidate in resp_data.get("candidates", []):
+            for part in candidate.get("content", {}).get("parts", []):
+                if "inlineData" in part:
+                    mime = part["inlineData"].get("mimeType", "image/png")
+                    b64 = part["inlineData"].get("data", "")
+                    image_data = f"data:{mime};base64,{b64}"
+                    break
+            if image_data:
+                break
+
+        return {
+            "title": infographic_title,
+            "subtitle": infographic_subtitle,
+            "imageData": image_data,
+            "model": FLASH_IMAGE_MODEL
+        }
+
+    except Exception as e:
+        print(f"[Flash Image Error] infographic generation failed: {e}")
+        # Fallback: return structured JSON for HTML rendering
+        return gen_infographic_structured(title, text)
+
+
+def gen_infographic_structured(title: str, text: str) -> dict:
+    """Fallback: structured JSON infographic rendered as HTML by the frontend."""
     prompt = f"""You are an expert data visualization and infographic designer. Analyze this document and create a richly structured infographic layout.
 
 Document: {title}
