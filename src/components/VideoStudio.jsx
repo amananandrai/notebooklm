@@ -212,12 +212,26 @@ export default function VideoStudio({ slides = [], script = [] }) {
     clearInterval(timerRef.current);
   }
 
-  const startRecording = useCallback(() => {
+  const startRecording = useCallback(async () => {
     if (!rendererRef.current) return;
     recordedChunksRef.current = [];
 
     const canvas = rendererRef.current.domElement;
-    const stream = canvas.captureStream(30);
+    const canvasStream = canvas.captureStream(30);
+
+    let audioStream = null;
+    try {
+      // Prompt user for microphone access to record spoken dialogue/speakers
+      audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (err) {
+      console.warn("Microphone access denied or unavailable. Recording video without audio.", err);
+    }
+
+    const tracks = [...canvasStream.getVideoTracks()];
+    if (audioStream) {
+      tracks.push(...audioStream.getAudioTracks());
+    }
+    const combinedStream = new MediaStream(tracks);
 
     let options = { mimeType: 'video/webm;codecs=vp9' };
     if (!MediaRecorder.isTypeSupported(options.mimeType)) {
@@ -225,7 +239,7 @@ export default function VideoStudio({ slides = [], script = [] }) {
     }
 
     try {
-      const recorder = new MediaRecorder(stream, options);
+      const recorder = new MediaRecorder(combinedStream, options);
       mediaRecorderRef.current = recorder;
 
       recorder.ondataavailable = (e) => {
@@ -264,6 +278,8 @@ export default function VideoStudio({ slides = [], script = [] }) {
   const stopRecording = useCallback(() => {
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       mediaRecorderRef.current.stop();
+      // Stop all tracks (including microphone) to turn off recording light
+      mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
     }
     setIsRecording(false);
   }, []);
