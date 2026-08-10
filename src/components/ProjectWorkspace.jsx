@@ -261,13 +261,15 @@ export default function ProjectWorkspace({ project, onBack }) {
           <span className="studio-content-badge">Gemini Generated</span>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          <button
-            className="btn-regen"
-            onClick={() => handleGenerate(activeTab)}
-            disabled={isGen}
-          >
-            {isGen ? '⏳' : '↺'} Regenerate
-          </button>
+          {activeTab !== 'video' && (
+            <button
+              className="btn-regen"
+              onClick={() => handleGenerate(activeTab)}
+              disabled={isGen}
+            >
+              {isGen ? '⏳' : '↺'} Regenerate
+            </button>
+          )}
         </div>
       </div>
     );
