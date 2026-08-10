@@ -10,6 +10,7 @@ export default function VideoStudio({ slides = [], script = [] }) {
   const [paused, setPaused]     = useState(false);
   const [elapsed, setElapsed]   = useState(0);
   const [currentSlideIdx, setCurrentSlideIdx] = useState(0);
+  const [showCaptions, setShowCaptions]       = useState(true);
 
   const [isRecording, setIsRecording] = useState(false);
   const mediaRecorderRef = useRef(null);
@@ -60,19 +61,19 @@ export default function VideoStudio({ slides = [], script = [] }) {
 
     // Chalk border
     ctx.strokeStyle = '#ffffff20';
-    ctx.lineWidth = 10;
-    ctx.strokeRect(10, 10, canvas.width - 20, canvas.height - 20);
+    ctx.lineWidth = 14;
+    ctx.strokeRect(15, 15, canvas.width - 30, canvas.height - 30);
 
     const slide = slideList[currentSlideIdx];
     if (!slide) {
       // Empty chalkboard state
       ctx.fillStyle = '#ffffffc0';
-      ctx.font = 'bold 28px "Inter", sans-serif';
+      ctx.font = 'bold 44px "Inter", sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText('NotebookLM 3D Studio', canvas.width / 2, canvas.height / 2 - 20);
-      ctx.font = '16px "Inter", sans-serif';
+      ctx.fillText('NotebookLM 3D Studio', canvas.width / 2, canvas.height / 2 - 30);
+      ctx.font = '26px "Inter", sans-serif';
       ctx.fillStyle = '#ffffff60';
-      ctx.fillText('Ready to record podcast video', canvas.width / 2, canvas.height / 2 + 20);
+      ctx.fillText('Ready to record podcast video', canvas.width / 2, canvas.height / 2 + 30);
       if (boardTextureRef.current) boardTextureRef.current.needsUpdate = true;
       return;
     }
@@ -82,42 +83,88 @@ export default function VideoStudio({ slides = [], script = [] }) {
     ctx.textAlign = 'left';
 
     // Slide Header
-    ctx.font = 'bold 24px "Inter", sans-serif';
-    const title = slide.title.length > 34 ? slide.title.slice(0, 32) + '...' : slide.title;
-    ctx.fillText(title, 40, 60);
+    ctx.font = 'bold 36px "Inter", sans-serif';
+    const title = slide.title.length > 45 ? slide.title.slice(0, 42) + '...' : slide.title;
+    ctx.fillText(title, 60, 90);
 
     // Divider
     ctx.strokeStyle = '#e2f0d960';
-    ctx.lineWidth = 2;
+    ctx.lineWidth = 4;
     ctx.beginPath();
-    ctx.moveTo(40, 80);
-    ctx.lineTo(canvas.width - 40, 80);
+    ctx.moveTo(60, 120);
+    ctx.lineTo(canvas.width - 60, 120);
     ctx.stroke();
 
     // Bullet points
     ctx.fillStyle = '#ffffffd0';
-    ctx.font = '15px "Inter", sans-serif';
-    let startY = 120;
+    ctx.font = '24px "Inter", sans-serif';
+    let startY = 180;
     const bullets = slide.bullets || [];
     bullets.forEach((b, i) => {
-      const text = b.length > 55 ? b.slice(0, 52) + '...' : b;
-      ctx.fillText(`• ${text}`, 40, startY + i * 40);
+      const text = b.length > 70 ? b.slice(0, 67) + '...' : b;
+      ctx.fillText(`• ${text}`, 60, startY + i * 65);
     });
 
     // Page indicator
     ctx.fillStyle = '#e2f0d950';
-    ctx.font = '11px "Inter", sans-serif';
-    ctx.fillText(`Slide ${currentSlideIdx + 1} of ${slideList.length}`, 40, canvas.height - 35);
+    ctx.font = '18px "Inter", sans-serif';
+    ctx.fillText(`Slide ${currentSlideIdx + 1} of ${slideList.length}`, 60, canvas.height - 55);
+
+    // Dynamic burned-in subtitles at the bottom of blackboard if playing
+    if (showCaptions && playing && current >= 0) {
+      const turn = turns[current];
+      if (turn) {
+        const speakerName = turn.speaker?.split(' ')[0] || 'Host';
+        const speakerColor = turn.speaker?.toLowerCase().includes('alex') ? '#a594f2' : '#f9a8d4';
+        
+        // Draw subtitle background plate
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
+        ctx.fillRect(40, canvas.height - 130, canvas.width - 80, 100);
+        ctx.strokeStyle = speakerColor + '40';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(40, canvas.height - 130, canvas.width - 80, 100);
+
+        // Draw speaker name pill
+        ctx.fillStyle = speakerColor;
+        ctx.font = 'bold 22px "Inter", sans-serif';
+        ctx.fillText(speakerName, 60, canvas.height - 75);
+
+        // Draw spoken text (wrapped to fit)
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'italic 19px "Inter", sans-serif';
+        
+        const maxTextWidth = canvas.width - 240;
+        const words = turn.text.split(' ');
+        let line = '';
+        const lines = [];
+        
+        for (let n = 0; n < words.length; n++) {
+          const testLine = line + words[n] + ' ';
+          const metrics = ctx.measureText(testLine);
+          if (metrics.width > maxTextWidth && n > 0) {
+            lines.push(line);
+            line = words[n] + ' ';
+          } else {
+            line = testLine;
+          }
+        }
+        lines.push(line);
+        
+        lines.slice(0, 3).forEach((l, li) => {
+          ctx.fillText(l.trim(), 170, canvas.height - 90 + li * 28);
+        });
+      }
+    }
 
     if (boardTextureRef.current) {
       boardTextureRef.current.needsUpdate = true;
     }
-  }, [currentSlideIdx, slideList]);
+  }, [currentSlideIdx, current, playing, showCaptions, turns, slideList]);
 
-  // Redraw chalkboard when slide changes
+  // Redraw chalkboard when slide or speaker changes
   useEffect(() => {
     updateBlackboardTexture();
-  }, [currentSlideIdx, updateBlackboardTexture]);
+  }, [currentSlideIdx, current, playing, showCaptions, updateBlackboardTexture]);
 
   // ── Load speech voices ────────────────────────────────────────
   useEffect(() => {
@@ -358,26 +405,26 @@ export default function VideoStudio({ slides = [], script = [] }) {
 
       scene.add(group);
     }
-    createMic(-0.6, 0.8, -Math.PI / 6);
-    createMic(0.6, 0.8, Math.PI / 6);
+    createMic(-1.25, 0.7, -Math.PI / 5);
+    createMic(1.25, 0.7, Math.PI / 5);
 
     // 4. Blackboard (Slide display)
     const boardCanvas = canvasRef.current;
     const boardTexture = new THREE.CanvasTexture(boardCanvas);
     boardTextureRef.current = boardTexture;
 
-    const boardGeo = new THREE.BoxGeometry(3.6, 2, 0.08);
+    const boardGeo = new THREE.BoxGeometry(4.8, 2.7, 0.08);
     const boardMat = new THREE.MeshStandardMaterial({ map: boardTexture, roughness: 0.95 });
     const board = new THREE.Mesh(boardGeo, boardMat);
-    board.position.set(0, 1.6, -1.8);
+    board.position.set(0, 1.8, -1.8);
     board.receiveShadow = true;
     scene.add(board);
 
     // Wooden frame for board
-    const frameGeo = new THREE.BoxGeometry(3.72, 2.12, 0.06);
+    const frameGeo = new THREE.BoxGeometry(4.92, 2.82, 0.06);
     const frameMat = new THREE.MeshStandardMaterial({ color: '#3d2511', roughness: 0.8 });
     const boardFrame = new THREE.Mesh(frameGeo, frameMat);
-    boardFrame.position.set(0, 1.6, -1.82);
+    boardFrame.position.set(0, 1.8, -1.82);
     scene.add(boardFrame);
 
     // 5. Stylized Avatars (Head/Body/Mouth spheres)
@@ -428,8 +475,8 @@ export default function VideoStudio({ slides = [], script = [] }) {
       return avatar;
     }
 
-    hostARef.current = createAvatar('#7c6cf6', -0.85, 0.7, Math.PI / 4.5);
-    hostBRef.current = createAvatar('#ec4899', 0.85, 0.7, -Math.PI / 4.5);
+    hostARef.current = createAvatar('#7c6cf6', -1.35, 0.65, Math.PI / 4);
+    hostBRef.current = createAvatar('#ec4899', 1.35, 0.65, -Math.PI / 4);
 
     // Initial chalkboard render
     updateBlackboardTexture();
@@ -506,8 +553,8 @@ export default function VideoStudio({ slides = [], script = [] }) {
       {/* Hidden 2D Canvas used for drawing blackboard texture */}
       <canvas
         ref={canvasRef}
-        width={512}
-        height={256}
+        width={1024}
+        height={512}
         style={{ display: 'none' }}
       />
 
@@ -530,6 +577,27 @@ export default function VideoStudio({ slides = [], script = [] }) {
           }}>
             <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--red)' }} />
             REC VISUALS
+          </div>
+        )}
+        {showCaptions && playing && current >= 0 && turns[current] && (
+          <div style={{
+            position: 'absolute', bottom: 20, left: '50%',
+            transform: 'translateX(-50%)', width: '85%', maxWidth: '640px',
+            background: 'rgba(10, 10, 15, 0.85)', backdropFilter: 'blur(8px)',
+            border: `1px solid ${turns[current]?.speaker?.toLowerCase().includes('alex') ? 'rgba(124, 108, 246, 0.4)' : 'rgba(236, 72, 153, 0.4)'}`,
+            borderRadius: 12, padding: '10px 18px', display: 'flex',
+            alignItems: 'center', gap: 12, zIndex: 10, boxShadow: '0 8px 32px rgba(0,0,0,0.5)'
+          }}>
+            <span style={{
+              background: turns[current]?.speaker?.toLowerCase().includes('alex') ? '#7c6cf6' : '#ec4899',
+              color: 'white', fontSize: 10, fontWeight: 800, padding: '3px 8px',
+              borderRadius: 6, textTransform: 'uppercase', letterSpacing: '0.05em', flexShrink: 0
+            }}>
+              {turns[current]?.speaker?.split(' ')[0]}
+            </span>
+            <p style={{ margin: 0, fontSize: 13, color: 'var(--text-primary)', textAlign: 'left', fontStyle: 'italic', lineHeight: 1.4 }}>
+              "{turns[current]?.text}"
+            </p>
           </div>
         )}
       </div>
@@ -567,6 +635,20 @@ export default function VideoStudio({ slides = [], script = [] }) {
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          {/* Subtitles CC Toggle */}
+          <button
+            onClick={() => setShowCaptions(!showCaptions)}
+            style={{
+              background: showCaptions ? 'var(--accent-dim)' : 'var(--bg-active)',
+              color: showCaptions ? 'var(--accent-lit)' : 'var(--text-secondary)',
+              border: '1px solid',
+              borderColor: showCaptions ? 'var(--accent)' : 'var(--border-hi)',
+              fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 6,
+              cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4
+            }}
+          >
+            💬 CC: {showCaptions ? 'ON' : 'OFF'}
+          </button>
           {/* Active slide badge */}
           {slideList.length > 0 && (
             <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--accent-lit)', padding: '4px 10px', background: 'var(--accent-dim)', borderRadius: 99, border: '1px solid var(--accent)30' }}>
