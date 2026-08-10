@@ -6,6 +6,7 @@ import AudioPlayer from './AudioPlayer';
 import SlideDeckViewer from './SlideDeckViewer';
 import StudyGuideViewer from './StudyGuideViewer';
 import ChatAssistant from './ChatAssistant';
+import VideoStudio from './VideoStudio';
 
 const MCP_ENDPOINT = window.location.origin.includes('5173') || window.location.origin.includes('localhost')
   ? 'http://127.0.0.1:8080/mcp'
@@ -15,6 +16,7 @@ const TABS = [
   { id: 'mindmap',    label: 'Mind Map',    icon: '🧠' },
   { id: 'audio',      label: 'Audio',       icon: '🎙️' },
   { id: 'slides',     label: 'Slides',      icon: '📊' },
+  { id: 'video',      label: 'Video Studio', icon: '🎬' },
   { id: 'studyguide', label: 'Study Guide', icon: '🎴' },
   { id: 'chat',       label: 'Chat',        icon: '💬' },
 ];
@@ -23,6 +25,7 @@ const TAB_META = {
   mindmap:    { title: 'Mind Map',     desc: 'Gemini will extract the key concepts, sections, and relationships from your PDF and build an interactive hierarchical mind map.',  icon: '🧠', feats: ['Hierarchical nodes', 'Color-coded categories', 'Interactive zoom & pan'] },
   audio:      { title: 'Audio Overview', desc: 'Gemini will generate a two-host podcast-style conversation exploring the key ideas in your document — just like NotebookLM.', icon: '🎙️', feats: ['Two-host dialogue', 'Natural conversation', 'Document-grounded facts'] },
   slides:     { title: 'Slide Deck',   desc: 'Gemini will create a professional slide deck with titles, bullets, and speaker notes derived from your PDF\'s real content.',       icon: '📊', feats: ['5 structured slides', 'Speaker notes', 'Real document content'] },
+  video:      { title: '3D Video Studio', desc: 'Visualize your slides and podcast audio in an interactive 3D WebGL Recording Studio with animated low-poly hosts.',      icon: '🎬', feats: ['Live 3D WebGL scene', 'Lipsync avatar animations', 'Synchronized blackboard slides'] },
   studyguide: { title: 'Study Guide',  desc: 'Gemini will generate flashcards and multiple-choice quiz questions grounded in your PDF to help you study the material.',          icon: '🎴', feats: ['6 flashcards', '4 quiz questions', 'Spaced repetition ready'] },
   chat:       { title: 'Q&A Chat',     desc: 'Ask anything about your PDF. Gemini will answer every question grounded in the actual document content with citations.',           icon: '💬', feats: ['Document-grounded answers', 'Citations included', 'Natural conversation'] },
 };
@@ -268,6 +271,49 @@ export default function ProjectWorkspace({ project, onBack }) {
         </div>
       </div>
     );
+
+    if (activeTab === 'video') {
+      const audioKey = `${activeDocId}_audio`;
+      const slidesKey = `${activeDocId}_slides`;
+      const audioData = artifacts[audioKey];
+      const slidesData = artifacts[slidesKey];
+
+      if (!audioData || !slidesData) {
+        return (
+          <div className="studio-empty">
+            <div className="studio-empty-icon">🎬</div>
+            <div className="studio-empty-title">Setup 3D Video Studio</div>
+            <div className="studio-empty-desc">
+              To record the 3D podcast presentation, you need to generate both the **Audio Overview** and the **Slide Deck** for this document first.
+            </div>
+            <div style={{ display: 'flex', gap: 16, marginBottom: 28 }}>
+              <div style={{ padding: '8px 16px', background: 'var(--bg-elevated)', borderRadius: 8, border: '1px solid var(--border)', fontSize: 13, color: audioData ? 'var(--green)' : 'var(--text-muted)' }}>
+                {audioData ? '✓ 🎙️ Audio Podcast Generated' : '⏳ 🎙️ Audio Podcast Missing'}
+              </div>
+              <div style={{ padding: '8px 16px', background: 'var(--bg-elevated)', borderRadius: 8, border: '1px solid var(--border)', fontSize: 13, color: slidesData ? 'var(--green)' : 'var(--text-muted)' }}>
+                {slidesData ? '✓ 📊 Slide Deck Generated' : '⏳ 📊 Slide Deck Missing'}
+              </div>
+            </div>
+            <button
+              className="btn-generate"
+              onClick={() => {
+                if (!audioData) handleTabChange('audio');
+                else if (!slidesData) handleTabChange('slides');
+              }}
+            >
+              Go to Generate →
+            </button>
+          </div>
+        );
+      }
+
+      return (
+        <VideoStudio
+          slides={slidesData}
+          script={audioData}
+        />
+      );
+    }
 
     if (activeTab === 'mindmap')    return <><div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>{contentHeader}<div style={{ flex: 1, overflow: 'hidden' }}><MindMapViewer data={artifact} /></div></div></>;
     if (activeTab === 'audio')      return <><div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>{contentHeader}<div style={{ flex: 1, overflow: 'hidden' }}><AudioPlayer script={artifact} /></div></div></>;
