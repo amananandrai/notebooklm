@@ -201,6 +201,7 @@ async def handle_mcp(request: Request):
         params = body.get("params", {})
         tool = params.get("name")
         args = params.get("arguments", {})
+        print(f"[DEBUG MCP Call] tool={tool} arguments={list(args.keys()) if args else None}")
         title = args.get("documentTitle", "Document")
         text = args.get("rawText", "")[:12000]  # cap tokens
         clean_title = re.sub(r"\.pdf$", "", title, flags=re.IGNORECASE)

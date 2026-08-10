@@ -206,6 +206,49 @@ export default function ProjectWorkspace({ project, onBack }) {
       );
     }
 
+    if (activeTab === 'video') {
+      const audioKey = `${activeDocId}_audio`;
+      const slidesKey = `${activeDocId}_slides`;
+      const audioData = artifacts[audioKey];
+      const slidesData = artifacts[slidesKey];
+
+      if (!audioData || !slidesData) {
+        return (
+          <div className="studio-empty">
+            <div className="studio-empty-icon">🎬</div>
+            <div className="studio-empty-title">Setup 3D Video Studio</div>
+            <div className="studio-empty-desc">
+              To record the 3D podcast presentation, you need to generate both the **Audio Overview** and the **Slide Deck** for this document first.
+            </div>
+            <div style={{ display: 'flex', gap: 16, marginBottom: 28 }}>
+              <div style={{ padding: '8px 16px', background: 'var(--bg-elevated)', borderRadius: 8, border: '1px solid var(--border)', fontSize: 13, color: audioData ? 'var(--green)' : 'var(--text-muted)' }}>
+                {audioData ? '✓ 🎙️ Audio Podcast Generated' : '⏳ 🎙️ Audio Podcast Missing'}
+              </div>
+              <div style={{ padding: '8px 16px', background: 'var(--bg-elevated)', borderRadius: 8, border: '1px solid var(--border)', fontSize: 13, color: slidesData ? 'var(--green)' : 'var(--text-muted)' }}>
+                {slidesData ? '✓ 📊 Slide Deck Generated' : '⏳ 📊 Slide Deck Missing'}
+              </div>
+            </div>
+            <button
+              className="btn-generate"
+              onClick={() => {
+                if (!audioData) handleTabChange('audio');
+                else if (!slidesData) handleTabChange('slides');
+              }}
+            >
+              Go to Generate →
+            </button>
+          </div>
+        );
+      }
+
+      return (
+        <VideoStudio
+          slides={slidesData}
+          script={audioData}
+        />
+      );
+    }
+
     const meta = TAB_META[activeTab];
 
     // Empty state
@@ -274,48 +317,7 @@ export default function ProjectWorkspace({ project, onBack }) {
       </div>
     );
 
-    if (activeTab === 'video') {
-      const audioKey = `${activeDocId}_audio`;
-      const slidesKey = `${activeDocId}_slides`;
-      const audioData = artifacts[audioKey];
-      const slidesData = artifacts[slidesKey];
 
-      if (!audioData || !slidesData) {
-        return (
-          <div className="studio-empty">
-            <div className="studio-empty-icon">🎬</div>
-            <div className="studio-empty-title">Setup 3D Video Studio</div>
-            <div className="studio-empty-desc">
-              To record the 3D podcast presentation, you need to generate both the **Audio Overview** and the **Slide Deck** for this document first.
-            </div>
-            <div style={{ display: 'flex', gap: 16, marginBottom: 28 }}>
-              <div style={{ padding: '8px 16px', background: 'var(--bg-elevated)', borderRadius: 8, border: '1px solid var(--border)', fontSize: 13, color: audioData ? 'var(--green)' : 'var(--text-muted)' }}>
-                {audioData ? '✓ 🎙️ Audio Podcast Generated' : '⏳ 🎙️ Audio Podcast Missing'}
-              </div>
-              <div style={{ padding: '8px 16px', background: 'var(--bg-elevated)', borderRadius: 8, border: '1px solid var(--border)', fontSize: 13, color: slidesData ? 'var(--green)' : 'var(--text-muted)' }}>
-                {slidesData ? '✓ 📊 Slide Deck Generated' : '⏳ 📊 Slide Deck Missing'}
-              </div>
-            </div>
-            <button
-              className="btn-generate"
-              onClick={() => {
-                if (!audioData) handleTabChange('audio');
-                else if (!slidesData) handleTabChange('slides');
-              }}
-            >
-              Go to Generate →
-            </button>
-          </div>
-        );
-      }
-
-      return (
-        <VideoStudio
-          slides={slidesData}
-          script={audioData}
-        />
-      );
-    }
 
     if (activeTab === 'mindmap')    return <><div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>{contentHeader}<div style={{ flex: 1, overflow: 'hidden' }}><MindMapViewer data={artifact} /></div></div></>;
     if (activeTab === 'audio')      return <><div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>{contentHeader}<div style={{ flex: 1, overflow: 'hidden' }}><AudioPlayer script={artifact} /></div></div></>;
