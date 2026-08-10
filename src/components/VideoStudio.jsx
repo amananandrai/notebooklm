@@ -427,56 +427,63 @@ export default function VideoStudio({ slides = [], script = [] }) {
     boardFrame.position.set(0, 1.8, -1.82);
     scene.add(boardFrame);
 
-    // 5. Stylized Avatars (Head/Body/Mouth spheres)
-    function createAvatar(colorHex, x, z, rotY) {
+    // 5. Stylized Face Billboard Panels (Rich AI Assets)
+    const textureLoader = new THREE.TextureLoader();
+
+    function createAvatar(imagePath, colorHex, x, z, rotY) {
       const avatar = new THREE.Group();
       avatar.position.set(x, 0.1, z);
       avatar.rotation.y = rotY;
 
-      // Stylized cylinder body (torso)
-      const bodyMat = new THREE.MeshStandardMaterial({ color: colorHex, roughness: 0.6 });
-      const body = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.32, 0.9, 16), bodyMat);
-      body.position.y = 0.45;
-      body.castShadow = true;
-      avatar.add(body);
+      // Table Stand Post (Metallic)
+      const postMat = new THREE.MeshStandardMaterial({ color: '#2a2a2a', roughness: 0.2, metalness: 0.9 });
+      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.7, 12), postMat);
+      post.position.y = 0.35;
+      avatar.add(post);
 
-      // Neck
-      const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.15, 8), new THREE.MeshStandardMaterial({ color: '#ffd1b3' }));
-      neck.position.y = 0.95;
-      avatar.add(neck);
+      const postBase = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 0.02, 16), postMat);
+      postBase.position.y = 0.01;
+      avatar.add(postBase);
 
-      // Sphere Head
-      const headMat = new THREE.MeshStandardMaterial({ color: '#ffd1b3', roughness: 0.8 });
-      const head = new THREE.Mesh(new THREE.SphereGeometry(0.2, 16, 16), headMat);
-      head.position.y = 1.15;
-      head.castShadow = true;
-      avatar.add(head);
+      // Portrait panel box
+      const panelWidth = 0.75;
+      const panelHeight = 1.0;
+      const panelDepth = 0.04;
+      const panelGeo = new THREE.BoxGeometry(panelWidth, panelHeight, panelDepth);
 
-      // Eyeglasses/Accessories (Host A)
-      if (colorHex === '#7c6cf6') {
-        const glasses = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.05, 0.04), new THREE.MeshStandardMaterial({ color: '#111' }));
-        glasses.position.set(0, 1.18, 0.18);
-        avatar.add(glasses);
-      } else {
-        // Hair cap (Host B)
-        const hair = new THREE.Mesh(new THREE.SphereGeometry(0.21, 16, 16, 0, Math.PI * 2, 0, Math.PI / 2), new THREE.MeshStandardMaterial({ color: '#3a2010', roughness: 0.9 }));
-        hair.position.set(0, 1.18, 0.02);
-        hair.rotation.x = -0.15;
-        avatar.add(hair);
-      }
+      // Load avatar texture
+      const avatarTex = textureLoader.load(imagePath);
+      
+      // Materials: [right, left, top, bottom, front, back]
+      const materials = [
+        new THREE.MeshStandardMaterial({ color: '#1a1a24', roughness: 0.5 }), // right
+        new THREE.MeshStandardMaterial({ color: '#1a1a24', roughness: 0.5 }), // left
+        new THREE.MeshStandardMaterial({ color: '#1a1a24', roughness: 0.5 }), // top
+        new THREE.MeshStandardMaterial({ color: '#1a1a24', roughness: 0.5 }), // bottom
+        new THREE.MeshStandardMaterial({ map: avatarTex, roughness: 0.35, metalness: 0.1 }), // front
+        new THREE.MeshStandardMaterial({ color: '#121218', roughness: 0.7, metalness: 0.8 })  // back
+      ];
+      
+      const panel = new THREE.Mesh(panelGeo, materials);
+      panel.position.y = 1.1;
+      panel.castShadow = true;
+      avatar.add(panel);
 
-      // Mouth sphere (we will pulse this to animate speaking)
-      const mouth = new THREE.Mesh(new THREE.SphereGeometry(0.025, 8, 8), new THREE.MeshStandardMaterial({ color: '#400a0a' }));
-      mouth.position.set(0, 1.08, 0.19);
-      avatar.add(mouth);
-      avatar.userData = { mouth, baseScale: 1, speakTimer: 0 };
+      // Glowing neon halo border ring behind the panel
+      const ringGeo = new THREE.RingGeometry(0.52, 0.55, 32);
+      const ringMat = new THREE.MeshBasicMaterial({ color: colorHex, side: THREE.DoubleSide });
+      const ring = new THREE.Mesh(ringGeo, ringMat);
+      ring.position.set(0, 1.1, -0.025);
+      avatar.add(ring);
 
+      avatar.userData = { panel, ring, basePosition: 0.1 };
+      
       scene.add(avatar);
       return avatar;
     }
 
-    hostARef.current = createAvatar('#7c6cf6', -1.35, 0.65, Math.PI / 4);
-    hostBRef.current = createAvatar('#ec4899', 1.35, 0.65, -Math.PI / 4);
+    hostARef.current = createAvatar('/alex_avatar.png', '#7c6cf6', -1.35, 0.65, Math.PI / 4);
+    hostBRef.current = createAvatar('/jordan_avatar.png', '#ec4899', 1.35, 0.65, -Math.PI / 4);
 
     // Initial chalkboard render
     updateBlackboardTexture();
@@ -490,14 +497,22 @@ export default function VideoStudio({ slides = [], script = [] }) {
 
       // Subtle breathing animations for both hosts
       if (hostARef.current && hostBRef.current) {
-        hostARef.current.position.y = 0.1 + Math.sin(time * 1.5) * 0.012;
-        hostBRef.current.position.y = 0.1 + Math.sin(time * 1.6 + 0.5) * 0.012;
+        hostARef.current.position.y = hostARef.current.userData.basePosition + Math.sin(time * 1.5) * 0.008;
+        hostBRef.current.position.y = hostBRef.current.userData.basePosition + Math.sin(time * 1.6 + 0.5) * 0.008;
 
-        // Reset mouth sizes
-        hostARef.current.userData.mouth.scale.set(1, 1, 1);
-        hostBRef.current.userData.mouth.scale.set(1, 1, 1);
-        hostARef.current.rotation.x = 0;
-        hostBRef.current.rotation.x = 0;
+        hostARef.current.rotation.z = 0;
+        hostBRef.current.rotation.z = 0;
+
+        // Reset speaking ring scale if quiet
+        const turn = (playing && !paused && current >= 0) ? turns[current] : null;
+        const isASpeaking = turn?.speaker?.toLowerCase().includes('host a') || turn?.speaker?.toLowerCase().includes('alex');
+        
+        if (!isASpeaking && hostARef.current.userData.ring) {
+          hostARef.current.userData.ring.scale.set(1, 1, 1);
+        }
+        if ((!playing || paused || current < 0 || isASpeaking) && hostBRef.current.userData.ring) {
+          hostBRef.current.userData.ring.scale.set(1, 1, 1);
+        }
       }
 
       // Speak animations (if playing and speaking)
@@ -506,14 +521,14 @@ export default function VideoStudio({ slides = [], script = [] }) {
         const isA  = turn.speaker?.toLowerCase().includes('host a') || turn.speaker?.toLowerCase().includes('alex');
         const activeHost = isA ? hostARef.current : hostBRef.current;
 
-        if (activeHost) {
-          // Bob head/body slightly
-          activeHost.position.y += Math.abs(Math.sin(time * 8)) * 0.025;
-          activeHost.rotation.x = Math.sin(time * 10) * 0.035;
+        if (activeHost && activeHost.userData.ring) {
+          // Bob the panel up and down slightly to simulate talking
+          activeHost.position.y = activeHost.userData.basePosition + Math.abs(Math.sin(time * 6)) * 0.04;
+          activeHost.rotation.z = Math.sin(time * 4) * 0.02;
 
-          // Pulse mouth open/close to simulate speaking
-          const mouthScale = 1 + Math.abs(Math.sin(time * 18)) * 2.8;
-          activeHost.userData.mouth.scale.set(1.5, mouthScale, 1.2);
+          // Pulse the neon border ring scale to match speaking volume
+          const ringPulse = 1.0 + Math.abs(Math.sin(time * 14)) * 0.16;
+          activeHost.userData.ring.scale.set(ringPulse, ringPulse, 1);
         }
       }
 
