@@ -479,61 +479,7 @@ All content must be grounded in actual document content. imagePrompt must be a v
 
 
 def gen_infographic(title: str, text: str) -> dict:
-    """Generate infographic using Pollinations.ai (free, no API key required)."""
-    import urllib.parse
-
-    # Step 1: Extract key facts/stats/sections from the document using Gemini
-    meta_prompt = f"""From this document extract:
-1. A concise title (max 8 words)
-2. A one-sentence subtitle
-3. 4 key statistics or facts (number + label)
-4. 3 main topics or sections
-
-Document: {title}
-Text: {text[:5000]}
-
-Return ONLY valid JSON:
-{{"title": "...", "subtitle": "...",
-  "stats": [{{"value": "42", "label": "metric"}}, ...],
-  "topics": ["topic1", "topic2", "topic3"]}}"""
-    try:
-        meta = parse_json(call_gemini(meta_prompt))
-    except Exception:
-        meta = {}
-
-    infographic_title = meta.get("title", title)
-    infographic_subtitle = meta.get("subtitle", "")
-    stats = meta.get("stats", [])
-    topics = meta.get("topics", [])
-
-    # Step 2: Build a rich visual infographic prompt for Pollinations.ai (using flux-3d model)
-    stats_text = ", ".join([f"{s.get('value','')} {s.get('label','')}" for s in stats[:4]])
-    topics_text = " | ".join(topics[:3])
-
-    infographic_prompt = (
-        f"3d isometric infographic poster, modern tech design, dark navy background, neon accent colors, "
-        f"bold title '{infographic_title}', subtitle text, "
-        f"large statistics numbers {stats_text}, "
-        f"three color-coded 3d sections {topics_text}, "
-        f"timeline flow diagram at bottom, "
-        f"clean modern typography, white text, glowing accent lines, "
-        f"3d render style, 4k, high detail"
-    )
-
-    image_url = call_pollinations(infographic_prompt, width=800, height=1100, seed=99, model="flux-3d")
-
-    return {
-        "title": infographic_title,
-        "subtitle": infographic_subtitle,
-        "imageData": image_url,
-        "model": "pollinations-flux-3d",
-        "stats": stats,
-        "topics": topics,
-    }
-
-
-def gen_infographic_structured(title: str, text: str) -> dict:
-    """Fallback: structured JSON infographic rendered as HTML by the frontend."""
+    """Generate a structured, interactive infographic with AI hero image illustration."""
     prompt = f"""You are an expert data visualization and infographic designer. Analyze this document and create a richly structured infographic layout.
 
 Document: {title}
@@ -541,10 +487,11 @@ Text: {text}
 
 Return ONLY valid JSON (no markdown fences):
 {{
-  "title": "<concise document title>",
+  "title": "<concise document title, max 8 words>",
   "subtitle": "<one powerful sentence summarizing the document>",
   "accentColor": "<a vivid hex color that fits the topic, e.g. #6366f1>",
-  "accentColor2": "<a second complementary hex color>",
+  "accentColor2": "<a second complementary hex color, e.g. #8b5cf6>",
+  "heroPrompt": "<vivid 10-15 word image prompt for an abstract visual header graphic representing the core topic, e.g. futuristic neural network banner, dark background>",
   "stats": [
     {{"label": "<metric name>", "value": "<number or short value>", "icon": "<single relevant emoji>", "desc": "<8-word context>"}},
     {{"label": "<metric name>", "value": "<value>", "icon": "<emoji>", "desc": "<8-word context>"}},
@@ -552,9 +499,9 @@ Return ONLY valid JSON (no markdown fences):
     {{"label": "<metric name>", "value": "<value>", "icon": "<emoji>", "desc": "<8-word context>"}}
   ],
   "sections": [
-    {{"title": "<section name>", "summary": "<2-sentence summary from doc>", "icon": "<emoji>", "color": "<hex>"}},
-    {{"title": "<section name>", "summary": "<2-sentence summary>", "icon": "<emoji>", "color": "<hex>"}},
-    {{"title": "<section name>", "summary": "<2-sentence summary>", "icon": "<emoji>", "color": "<hex>"}}
+    {{"title": "<section name>", "summary": "<2-sentence summary from doc>", "icon": "<emoji>", "color": "#6366f1"}},
+    {{"title": "<section name>", "summary": "<2-sentence summary>", "icon": "<emoji>", "color": "#8b5cf6"}},
+    {{"title": "<section name>", "summary": "<2-sentence summary>", "icon": "<emoji>", "color": "#ec4899"}}
   ],
   "timeline": [
     {{"step": 1, "label": "<phase or step name>", "desc": "<one sentence>"}},
@@ -566,7 +513,15 @@ Return ONLY valid JSON (no markdown fences):
 }}
 
 All fields must be grounded in actual document content. No placeholders."""
-    return parse_json(call_gemini(prompt))
+
+    data = parse_json(call_gemini(prompt))
+
+    # Generate an AI hero illustration image for the infographic banner using Pollinations
+    hero_prompt = data.get("heroPrompt", f"{title} technology visualization, 3d abstract render, neon accent, dark navy background")
+    full_prompt = f"{hero_prompt}, 3d render, isometric, 8k, dark moody atmosphere, glowing neon"
+    data["heroImage"] = call_pollinations(full_prompt, width=1200, height=450, seed=123, model="flux-3d")
+
+    return data
 
 
 def gen_study_guide(title: str, text: str) -> dict:
