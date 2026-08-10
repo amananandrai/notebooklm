@@ -479,7 +479,7 @@ export default function ProjectWorkspace({ project, onBack }) {
     if (activeTab === 'mindmap')    return <><div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>{contentHeader}<div style={{ flex: 1, overflow: 'hidden' }}><MindMapViewer data={artifact} /></div></div></>;
     if (activeTab === 'audio')      return <><div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>{contentHeader}<div style={{ flex: 1, overflow: 'hidden' }}><AudioPlayer script={artifact} /></div></div></>;
     if (activeTab === 'slides')     return <><div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>{contentHeader}<div style={{ flex: 1, overflow: 'hidden' }}><SlideDeckViewer slides={artifact} /></div></div></>;
-    if (activeTab === 'slides_img') return <><div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>{contentHeader}<div style={{ flex: 1, overflow: 'hidden' }}><SlidesWithImagesViewer slides={artifact} /></div></div></>;
+    if (activeTab === 'slides_img') return <><div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>{contentHeader}<div style={{ flex: 1, overflow: 'hidden' }}><SlidesWithImagesViewer slides={artifact} docTitle={activeDoc.title.replace('.pdf', '')} /></div></div></>;
     if (activeTab === 'infographic')return <><div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>{contentHeader}<div style={{ flex: 1, overflow: 'hidden' }}><InfographicViewer data={artifact} /></div></div></>;
     if (activeTab === 'studyguide') return <><div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>{contentHeader}<div style={{ flex: 1, overflow: 'hidden' }}><StudyGuideViewer data={artifact} /></div></div></>;
   }
