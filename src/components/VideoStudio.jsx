@@ -27,61 +27,7 @@ export default function VideoStudio({ slides = [], script = [] }) {
   const boardTextureRef = useRef(null); // canvas texture for chalkboard
   const animationFrameRef = useRef(null);
 
-  const startRecording = useCallback(() => {
-    if (!rendererRef.current) return;
-    recordedChunksRef.current = [];
 
-    const canvas = rendererRef.current.domElement;
-    const stream = canvas.captureStream(30);
-
-    let options = { mimeType: 'video/webm;codecs=vp9' };
-    if (!MediaRecorder.isTypeSupported(options.mimeType)) {
-      options = { mimeType: 'video/webm' };
-    }
-
-    try {
-      const recorder = new MediaRecorder(stream, options);
-      mediaRecorderRef.current = recorder;
-
-      recorder.ondataavailable = (e) => {
-        if (e.data && e.data.size > 0) {
-          recordedChunksRef.current.push(e.data);
-        }
-      };
-
-      recorder.onstop = () => {
-        const blob = new Blob(recordedChunksRef.current, { type: 'video/webm' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `presentation_3d_recording.webm`;
-        a.click();
-        URL.revokeObjectURL(url);
-      };
-
-      recorder.start();
-      setIsRecording(true);
-
-      // Autoplay speech synthesis
-      if (!synthRef.current.speaking) {
-        synthRef.current.cancel();
-        setElapsed(0);
-        setPlaying(true);
-        setPaused(false);
-        turnIdxRef.current = 0;
-        speakTurn(0);
-      }
-    } catch (err) {
-      console.error('Error starting video capture:', err);
-    }
-  }, [playing, speakTurn]);
-
-  const stopRecording = useCallback(() => {
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-      mediaRecorderRef.current.stop();
-    }
-    setIsRecording(false);
-  }, []);
 
   const turns = Array.isArray(script) ? script : [];
   const slideList = Array.isArray(slides) ? slides : [];
@@ -265,6 +211,62 @@ export default function VideoStudio({ slides = [], script = [] }) {
     setElapsed(0);
     clearInterval(timerRef.current);
   }
+
+  const startRecording = useCallback(() => {
+    if (!rendererRef.current) return;
+    recordedChunksRef.current = [];
+
+    const canvas = rendererRef.current.domElement;
+    const stream = canvas.captureStream(30);
+
+    let options = { mimeType: 'video/webm;codecs=vp9' };
+    if (!MediaRecorder.isTypeSupported(options.mimeType)) {
+      options = { mimeType: 'video/webm' };
+    }
+
+    try {
+      const recorder = new MediaRecorder(stream, options);
+      mediaRecorderRef.current = recorder;
+
+      recorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) {
+          recordedChunksRef.current.push(e.data);
+        }
+      };
+
+      recorder.onstop = () => {
+        const blob = new Blob(recordedChunksRef.current, { type: 'video/webm' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `presentation_3d_recording.webm`;
+        a.click();
+        URL.revokeObjectURL(url);
+      };
+
+      recorder.start();
+      setIsRecording(true);
+
+      // Autoplay speech synthesis
+      if (!synthRef.current.speaking) {
+        synthRef.current.cancel();
+        setElapsed(0);
+        setPlaying(true);
+        setPaused(false);
+        turnIdxRef.current = 0;
+        speakTurn(0);
+      }
+    } catch (err) {
+      console.error('Error starting video capture:', err);
+    }
+  }, [playing, speakTurn]);
+
+  const stopRecording = useCallback(() => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop();
+    }
+    setIsRecording(false);
+  }, []);
 
   // ── Three.js Scene Setup ──────────────────────────────────────
   useEffect(() => {
