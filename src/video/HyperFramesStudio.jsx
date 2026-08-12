@@ -15,9 +15,16 @@ export default function HyperFramesStudio({ slides, script }) {
     setStatus('Submitting HyperFrames HTML render…');
     try {
       const response = await fetch(`${API_BASE}/hyperframes/render`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ template, timeline, showCaptions }) });
-      if (!response.ok) throw new Error(await response.text());
+      if (!response.ok) {
+        const errorBody = await response.json().catch(() => ({}));
+        throw new Error(errorBody.detail || errorBody.error || 'HyperFrames render failed.');
+      }
       const result = await response.json();
       setStatus(result.message || 'HyperFrames render started.');
+      if (result.status === 'complete' && result.downloadUrl) {
+        setStatus(<span>HyperFrames render complete. <a href={result.downloadUrl} download style={{ color: 'var(--accent-lit)' }}>Download MP4</a></span>);
+        return;
+      }
       const poll = async () => {
         const statusResponse = await fetch(`${API_BASE}/hyperframes/render/${result.jobId}`);
         const renderStatus = await statusResponse.json();

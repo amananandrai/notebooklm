@@ -11,9 +11,20 @@
     {
       "src": "api/index.py",
       "use": "@vercel/python"
+    },
+    {
+      "src": "api/hyperframes-render.js",
+      "use": "@vercel/node",
+      "config": {
+        "includeFiles": ["api/hyperframes-render.js"]
+      }
     }
   ],
   "routes": [
+    {
+      "src": "/api/hyperframes/render",
+      "dest": "api/hyperframes-render.js"
+    },
     {
       "src": "/api/(.*)",
       "dest": "api/index.py"
