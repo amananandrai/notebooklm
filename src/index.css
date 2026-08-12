@@ -1305,7 +1305,7 @@ textarea.modal-input { resize: vertical; min-height: 80px; }
 }
 
 /* ════════════════════════════════════════════════════════════════
-   STUDY GUIDE VIEWER STYLES
+   STUDY GUIDE VIEWER STYLES & 3D FLASHCARD FLIP
    ════════════════════════════════════════════════════════════════ */
 .study-tabs {
   display: flex;
@@ -1350,27 +1350,73 @@ textarea.modal-input { resize: vertical; min-height: 80px; }
   background: var(--bg-base);
 }
 
+/* 3D Flashcard Flip System */
+.fc-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.fc-wrapper {
+  perspective: 1000px;
+  min-height: 180px;
+}
+
 .fc-card {
+  width: 100%;
+  height: 100%;
+  min-height: 180px;
+  position: relative;
+  transform-style: preserve-3d;
+  transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+  cursor: pointer;
+}
+
+.fc-card.flipped {
+  transform: rotateY(180deg);
+}
+
+.fc-face {
+  position: absolute;
+  inset: 0;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
   background: #ffffff;
   border: 1px solid var(--border-med);
   border-radius: var(--radius-xl);
-  padding: 28px 32px;
-  margin-bottom: 18px;
-  cursor: pointer;
-  transition: var(--transition);
+  padding: 24px 28px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
   box-shadow: var(--shadow-sm);
-  position: relative;
 }
 
-.fc-card:hover {
+.fc-card:hover .fc-face {
   border-color: rgba(109, 40, 217, 0.25);
   box-shadow: var(--shadow-md);
-  transform: translateY(-2px);
 }
 
-.fc-card.mastered {
+.fc-front {
+  transform: rotateY(0deg);
+  background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+}
+
+.fc-back {
+  transform: rotateY(180deg);
+  background: linear-gradient(135deg, #ffffff 0%, #f3e8ff 100%);
+  border-color: rgba(109, 40, 217, 0.2);
+}
+
+.fc-card.mastered .fc-face {
   border-color: rgba(22, 163, 74, 0.3);
-  background: rgba(240, 253, 244, 0.6);
+  background: rgba(240, 253, 244, 0.95);
+}
+
+.fc-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
 }
 
 .fc-cat {
@@ -1380,22 +1426,6 @@ textarea.modal-input { resize: vertical; min-height: 80px; }
   text-transform: uppercase;
   letter-spacing: 0.06em;
   font-family: var(--font-heading);
-  margin-bottom: 8px;
-}
-
-.fc-question {
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--text-primary);
-  font-family: var(--font-heading);
-  line-height: 1.45;
-  margin-bottom: 10px;
-}
-
-.fc-hint {
-  font-size: 11px;
-  color: var(--text-muted);
-  font-style: italic;
 }
 
 .fc-back-label {
@@ -1405,31 +1435,62 @@ textarea.modal-input { resize: vertical; min-height: 80px; }
   text-transform: uppercase;
   letter-spacing: 0.06em;
   font-family: var(--font-heading);
-  margin-bottom: 8px;
+}
+
+.fc-mastered-tag {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--green);
+  background: rgba(22, 163, 74, 0.1);
+  padding: 2px 8px;
+  border-radius: 99px;
+}
+
+.fc-question {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+  font-family: var(--font-heading);
+  line-height: 1.45;
+  margin: 8px 0;
 }
 
 .fc-answer {
   font-size: 15px;
   color: var(--text-primary);
   line-height: 1.6;
-  margin-bottom: 18px;
+  margin: 8px 0;
+}
+
+.fc-hint {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  font-style: italic;
 }
 
 .fc-actions {
   display: flex;
   gap: 10px;
   justify-content: flex-end;
+  margin-top: 12px;
 }
 
 .fc-btn {
-  padding: 7px 16px;
+  padding: 6px 14px;
   border-radius: var(--radius-sm);
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-med);
   transition: var(--transition);
   font-family: var(--font-heading);
+  background: #ffffff;
+  color: var(--text-primary);
+}
+
+.fc-btn:hover {
+  background: var(--bg-hover);
+  border-color: var(--accent);
 }
 
 .fc-btn.master {
@@ -1438,9 +1499,10 @@ textarea.modal-input { resize: vertical; min-height: 80px; }
   border: none;
 }
 
-.fc-btn.unmaster {
-  background: var(--bg-hover);
-  color: var(--text-primary);
+.fc-btn.flip-back {
+  background: #f3e8ff;
+  color: var(--accent);
+  border-color: rgba(109, 40, 217, 0.2);
 }
 
 .quiz-question {

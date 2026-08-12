@@ -49,43 +49,47 @@ export default function StudyGuideViewer({ data }) {
 
       <div className="study-body" style={{ flex: 1 }}>
         {subTab === 'flashcards' && (
-          <div className="anim-fade-in">
+          <div className="fc-grid">
             {flashcards.length === 0 && (
               <div style={{ color: 'var(--text-muted)', textAlign: 'center', padding: 40 }}>No flashcards available.</div>
             )}
             {flashcards.map(card => (
-              <div
-                key={card.id}
-                className={`fc-card${mastered[card.id] ? ' mastered' : ''}${flipped[card.id] ? ' flipped' : ''}`}
-                onClick={() => toggleFlip(card.id)}
-              >
-                {/* Front */}
-                <div className="fc-front">
-                  <div className="fc-cat">{card.category}</div>
-                  <div className="fc-question">{card.question}</div>
-                  <div className="fc-hint">Click to reveal answer</div>
-                  {mastered[card.id] && (
-                    <div style={{ marginTop: 8, fontSize: 11, color: 'var(--green)' }}>✓ Mastered</div>
-                  )}
-                </div>
+              <div key={card.id} className="fc-wrapper">
+                <div
+                  className={`fc-card${mastered[card.id] ? ' mastered' : ''}${flipped[card.id] ? ' flipped' : ''}`}
+                  onClick={() => toggleFlip(card.id)}
+                >
+                  {/* Front Side */}
+                  <div className="fc-face fc-front">
+                    <div className="fc-header">
+                      <span className="fc-cat">{card.category || 'Concept'}</span>
+                      {mastered[card.id] && <span className="fc-mastered-tag">✓ Mastered</span>}
+                    </div>
+                    <div className="fc-question">{card.question}</div>
+                    <div className="fc-hint">💡 Click card to flip &amp; reveal answer</div>
+                  </div>
 
-                {/* Back */}
-                <div className="fc-back" onClick={e => e.stopPropagation()}>
-                  <div className="fc-back-label">Answer</div>
-                  <div className="fc-answer">{card.answer}</div>
-                  <div className="fc-actions">
-                    <button
-                      className={`fc-btn ${mastered[card.id] ? 'unmaster' : 'master'}`}
-                      onClick={() => toggleMaster(card.id)}
-                    >
-                      {mastered[card.id] ? '✕ Unmark' : '✓ Got it!'}
-                    </button>
-                    <button
-                      className="fc-btn unmaster"
-                      onClick={() => setFlipped(f => ({ ...f, [card.id]: false }))}
-                    >
-                      ← Back
-                    </button>
+                  {/* Back Side */}
+                  <div className="fc-face fc-back">
+                    <div className="fc-header">
+                      <span className="fc-back-label">Answer</span>
+                      {mastered[card.id] && <span className="fc-mastered-tag">✓ Mastered</span>}
+                    </div>
+                    <div className="fc-answer">{card.answer}</div>
+                    <div className="fc-actions" onClick={e => e.stopPropagation()}>
+                      <button
+                        className={`fc-btn ${mastered[card.id] ? 'unmaster' : 'master'}`}
+                        onClick={() => toggleMaster(card.id)}
+                      >
+                        {mastered[card.id] ? '✕ Unmark' : '✓ Got it!'}
+                      </button>
+                      <button
+                        className="fc-btn flip-back"
+                        onClick={() => toggleFlip(card.id)}
+                      >
+                        🔄 Flip Back
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
