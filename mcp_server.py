@@ -1,11 +1,14 @@
 import uvicorn
 import base64
+import html
 import io
 import json
 import re
 import os
+import shutil
 import subprocess
 import tempfile
+import time
 import urllib.request
 import wave
 from typing import Any, List, Optional, Union
@@ -98,6 +101,7 @@ class HyperFramesRenderRequest(BaseModel):
     showCaptions: bool = True
 
 VIDEO_RENDER_JOBS = {}
+HYPERFRAMES_JOBS = {}
 
 
 def _synthesize_video_audio(turns: List[dict]) -> dict:
@@ -259,9 +263,82 @@ async def download_video(video_id: str):
 
 @app.post("/api/hyperframes/render")
 async def render_hyperframes(request: HyperFramesRenderRequest):
-    """HyperFrames integration seam. The HTML payload is ready for the HyperFrames CLI/worker."""
-    job_id = f"hyperframes_{int(__import__('time').time() * 1000)}"
-    return {"jobId": job_id, "status": "queued", "message": "HyperFrames render queued. Configure the HyperFrames CLI worker to process this HTML composition."}
+    """Generate a HyperFrames HTML project and render it locally when the CLI is available."""
+    hyperframes_cmd = shutil.which("hyperframes") or shutil.which("hyperframes.cmd")
+    if not hyperframes_cmd:
+        raise HTTPException(status_code=503, detail="HyperFrames CLI is not installed. Run: npm install -g hyperframes")
+
+    timeline = request.timeline or {}
+    width = int(timeline.get("width", 1920))
+    height = int(timeline.get("height", 1080))
+    fps = int(timeline.get("fps", 30))
+    duration_seconds = max(1, int(timeline.get("durationInFrames", fps * 10)) / fps)
+    resolution = "portrait" if height > width else "square" if width == height else "landscape"
+    job_id = f"hyperframes_{int(time.time() * 1000)}"
+    project_root = os.path.dirname(os.path.abspath(__file__))
+    project_dir = os.path.join(project_root, ".tmp_hyperframes", job_id)
+    output_dir = os.path.join(project_root, "renders")
+    output_path = os.path.join(output_dir, f"{job_id}.mp4")
+    os.makedirs(project_dir, exist_ok=True)
+    os.makedirs(output_dir, exist_ok=True)
+
+    slides_html = []
+    for slide in timeline.get("slides", []):
+        start = float(slide.get("startFrame", 0)) / fps
+        duration = max(0.1, (float(slide.get("endFrame", timeline.get("durationInFrames", fps))) - float(slide.get("startFrame", 0))) / fps)
+        bullets = "".join(f"<li>{html.escape(str(bullet))}</li>" for bullet in (slide.get("bullets") or [])[:6])
+        slides_html.append(f'<section class="slide clip" data-start="{start:.3f}" data-duration="{duration:.3f}"><h1>{html.escape(str(slide.get("title", "")))}</h1><ul>{bullets}</ul></section>')
+
+    captions_html = []
+    if request.showCaptions:
+        for turn in timeline.get("turns", []):
+            start = float(turn.get("startFrame", 0)) / fps
+            duration = max(0.1, float(turn.get("durationInFrames", fps)) / fps)
+            captions_html.append(f'<div class="caption clip" data-start="{start:.3f}" data-duration="{duration:.3f}"><b>{html.escape(str(turn.get("speaker", "Host")).upper())}</b><span>{html.escape(str(turn.get("text", "")))}</span></div>')
+
+    index_html = f'''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width={width}, height={height}"><script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script><style>
+      *{{box-sizing:border-box}} html,body{{margin:0;width:{width}px;height:{height}px;overflow:hidden;background:#090b14;color:#fff;font-family:Inter,Arial,sans-serif}} #root{{position:relative;width:100%;height:100%;background:linear-gradient(135deg,#111b38,#5b3b94)}} .slide{{position:absolute;inset:8%;padding:7%;background:rgba(8,10,20,.38);border:2px solid #c4b5fd88;border-radius:28px}} h1{{font-size:{max(42, width // 24)}px;line-height:1.05;margin:0 0 38px}} li{{font-size:{max(22, width // 62)}px;line-height:1.5;margin:14px 0}} .caption{{position:absolute;left:8%;right:8%;bottom:7%;padding:22px 30px;background:rgba(8,10,18,.94);border:2px solid #c4b5fd99;border-radius:20px;font-size:{max(20, width // 70)}px}} .caption b{{display:block;color:#c4b5fd;font-size:.65em;letter-spacing:1px;margin-bottom:8px}} .clip{{visibility:hidden;opacity:0}} </style></head><body><main id="root" data-composition-id="main" data-start="0" data-duration="{duration_seconds:.3f}" data-width="{width}" data-height="{height}">{''.join(slides_html)}{''.join(captions_html)}</main><script>
+      window.__timelines=window.__timelines||{{}}; const tl=gsap.timeline({{paused:true}}); document.querySelectorAll('.clip').forEach((el)=>{{const start=Number(el.dataset.start||0), duration=Number(el.dataset.duration||1); tl.set(el,{{visibility:'visible'}},start).to(el,{{opacity:1,duration:.12}},start).to(el,{{opacity:0,duration:.12}},start+duration-.12);}}); window.__timelines.main=tl;
+    </script></body></html>'''
+    with open(os.path.join(project_dir, "index.html"), "w", encoding="utf-8") as file:
+        file.write(index_html)
+
+    hyperframes_json = {"$schema": "https://hyperframes.heygen.com/schema/hyperframes.json", "paths": {"assets": "assets"}, "media": {"autoProxy": True}}
+    with open(os.path.join(project_dir, "hyperframes.json"), "w", encoding="utf-8") as file:
+        json.dump(hyperframes_json, file)
+
+    ffmpeg_dir = os.path.join(project_root, "node_modules", "ffmpeg-static")
+    ffprobe_dir = os.path.join(project_root, "node_modules", "ffprobe-static", "bin", "win32", "x64")
+    env = os.environ.copy()
+    env["PATH"] = os.pathsep.join([ffmpeg_dir, ffprobe_dir, env.get("PATH", "")])
+    command = [hyperframes_cmd, "render", project_dir, "--output", output_path, "--format", "mp4", "--fps", str(fps), "--resolution", resolution, "--low-memory-mode"]
+    try:
+        process = subprocess.Popen(command, cwd=project_root, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except OSError as exc:
+        raise HTTPException(status_code=503, detail=f"Unable to start HyperFrames renderer: {exc}")
+    HYPERFRAMES_JOBS[job_id] = {"process": process, "output": output_path, "project": project_dir, "status": "rendering"}
+    return {"jobId": job_id, "status": "rendering", "message": "HyperFrames render started"}
+
+
+@app.get("/api/hyperframes/render/{job_id}")
+async def get_hyperframes_render_status(job_id: str):
+    job = HYPERFRAMES_JOBS.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="HyperFrames render job not found")
+    process = job["process"]
+    if process.poll() is None:
+        return {"jobId": job_id, "status": "rendering"}
+    if process.returncode == 0 and os.path.exists(job["output"]):
+        return {"jobId": job_id, "status": "complete", "downloadUrl": f"/api/hyperframes/{job_id}/download"}
+    return {"jobId": job_id, "status": "error", "message": "HyperFrames failed to render the composition. Run hyperframes doctor for diagnostics."}
+
+
+@app.get("/api/hyperframes/{job_id}/download")
+async def download_hyperframes_video(job_id: str):
+    job = HYPERFRAMES_JOBS.get(job_id)
+    if not job or not os.path.exists(job["output"]):
+        raise HTTPException(status_code=404, detail="HyperFrames video is not ready")
+    return FileResponse(job["output"], media_type="video/mp4", filename="notebooklm_hyperframes.mp4")
 
 
 # ── REST API Endpoints for MongoDB Storage ───────────────────────
