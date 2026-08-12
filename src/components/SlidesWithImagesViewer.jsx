@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 
 // ── Image loader: fetch a URL and return a base64 data URI ──────────────────
 async function urlToBase64(url) {
@@ -34,28 +34,27 @@ async function downloadPDF(slides, docTitle) {
         try { pdf.addImage(b64, 'JPEG', 0, 0, W, H); } catch {}
       }
     } else {
-      // Gradient fallback — dark background
-      pdf.setFillColor(30, 27, 75);
+      pdf.setFillColor(248, 250, 252);
       pdf.rect(0, 0, W, H, 'F');
     }
 
-    // Dark overlay (semi-transparent via a filled rect with low opacity)
+    // Semi-transparent dark overlay for text contrast on image
     pdf.setGState(pdf.GState({ opacity: 0.55 }));
-    pdf.setFillColor(0, 0, 0);
+    pdf.setFillColor(15, 23, 42);
     pdf.rect(0, 0, W, H, 'F');
     pdf.setGState(pdf.GState({ opacity: 1.0 }));
 
     // Slide number
     pdf.setFont('helvetica', 'normal');
     pdf.setFontSize(8);
-    pdf.setTextColor(180, 180, 180);
-    pdf.text(`${i + 1} / ${slides.length}`, W - 10, 8, { align: 'right' });
+    pdf.setTextColor(200, 200, 220);
+    pdf.text(`${i + 1} / ${slides.length}`, W - 10, 10, { align: 'right' });
 
     // Subtitle / label
     if (slide.subtitle && slide.type === 'title') {
       pdf.setFont('helvetica', 'bold');
-      pdf.setFontSize(8);
-      pdf.setTextColor(165, 180, 252);
+      pdf.setFontSize(9);
+      pdf.setTextColor(196, 181, 253);
       pdf.text((slide.subtitle || '').toUpperCase(), 18, 28);
     }
 
@@ -64,14 +63,14 @@ async function downloadPDF(slides, docTitle) {
     pdf.setFontSize(slide.type === 'title' ? 26 : 20);
     pdf.setTextColor(255, 255, 255);
     const titleLines = pdf.splitTextToSize(slide.title || '', W - 36);
-    pdf.text(titleLines, 18, slide.type === 'title' ? 42 : 95);
+    pdf.text(titleLines, 18, slide.type === 'title' ? 44 : 40);
 
     // Bullets
     if (slide.bullets?.length > 0) {
       pdf.setFont('helvetica', 'normal');
-      pdf.setFontSize(10);
-      pdf.setTextColor(230, 230, 230);
-      const startY = slide.type === 'title' ? 75 : 112;
+      pdf.setFontSize(10.5);
+      pdf.setTextColor(240, 240, 255);
+      const startY = slide.type === 'title' ? 80 : 70;
       slide.bullets.forEach((b, bi) => {
         const lines = pdf.splitTextToSize(`• ${b}`, W - 40);
         pdf.text(lines, 22, startY + bi * 14);
@@ -81,10 +80,10 @@ async function downloadPDF(slides, docTitle) {
     // Speaker notes (bottom strip)
     if (slide.speakerNotes) {
       pdf.setFont('helvetica', 'italic');
-      pdf.setFontSize(7);
-      pdf.setTextColor(130, 130, 160);
+      pdf.setFontSize(7.5);
+      pdf.setTextColor(180, 180, 210);
       const noteLines = pdf.splitTextToSize(`Notes: ${slide.speakerNotes}`, W - 36);
-      pdf.text(noteLines, 18, H - 10);
+      pdf.text(noteLines, 18, H - 12);
     }
   }
 
@@ -105,7 +104,6 @@ async function downloadPPTX(slides, docTitle) {
     if (imgSrc) {
       let b64 = imgSrc.startsWith('data:') ? imgSrc : await urlToBase64(imgSrc);
       if (b64) {
-        // strip the data:image/...;base64, prefix
         const base64Data = b64.split(',')[1];
         const mimeMatch = b64.match(/data:([^;]+);/);
         const ext = mimeMatch ? mimeMatch[1].split('/')[1] || 'jpeg' : 'jpeg';
@@ -114,20 +112,20 @@ async function downloadPPTX(slides, docTitle) {
         } catch {}
       }
     } else {
-      sld.background = { fill: '1e1b4b' };
+      sld.background = { fill: 'f8fafc' };
     }
 
     // Dark overlay rectangle
     sld.addShape(prs.ShapeType.rect, {
       x: 0, y: 0, w: '100%', h: '100%',
-      fill: { color: '000000', transparency: 45 },
-      line: { color: '000000', transparency: 100 }
+      fill: { color: '0f172a', transparency: 45 },
+      line: { color: '0f172a', transparency: 100 }
     });
 
     // Slide number badge
     sld.addText(`${slides.indexOf(slide) + 1} / ${slides.length}`, {
       x: 8.5, y: 0.1, w: 1, h: 0.3,
-      fontSize: 8, color: 'aaaaaa', bold: false, align: 'right'
+      fontSize: 8, color: 'cccccc', bold: false, align: 'right'
     });
 
     const isTitle = slide.type === 'title';
@@ -136,14 +134,14 @@ async function downloadPPTX(slides, docTitle) {
     if (slide.subtitle && isTitle) {
       sld.addText((slide.subtitle || '').toUpperCase(), {
         x: 0.4, y: isTitle ? 1.2 : 3.5, w: 8.5, h: 0.4,
-        fontSize: 9, color: 'a5b4fc', bold: true, charSpacing: 3
+        fontSize: 9, color: 'c4b5fd', bold: true, charSpacing: 3
       });
     }
 
     // Title
     sld.addText(slide.title || '', {
       x: 0.4,
-      y: isTitle ? 1.8 : 3.0,
+      y: isTitle ? 1.8 : 1.2,
       w: 8.5, h: isTitle ? 1.4 : 1.0,
       fontSize: isTitle ? 36 : 28,
       color: 'ffffff', bold: true, breakLine: false,
@@ -154,11 +152,11 @@ async function downloadPPTX(slides, docTitle) {
     if (slide.bullets?.length > 0) {
       const bulletItems = slide.bullets.map(b => ({
         text: b,
-        options: { bullet: { code: '2022' }, color: 'eeeeee', fontSize: 13, paraSpaceAfter: 6 }
+        options: { bullet: { code: '2022' }, color: 'ffffff', fontSize: 13, paraSpaceAfter: 6 }
       }));
       sld.addText(bulletItems, {
-        x: 0.4, y: isTitle ? 3.4 : 4.1, w: 8.6, h: 1.8,
-        fontSize: 13, color: 'eeeeee', breakLine: true
+        x: 0.4, y: isTitle ? 3.4 : 2.5, w: 8.6, h: 2.5,
+        fontSize: 13, color: 'ffffff', breakLine: true
       });
     }
 
@@ -226,52 +224,84 @@ export default function SlidesWithImagesViewer({ slides, docTitle }) {
   const isTitle  = slide.type === 'title';
 
   return (
-    <div style={{ display: 'flex', height: '100%', overflow: 'hidden' }}>
+    <div style={{ display: 'flex', height: '100%', overflow: 'hidden', background: 'var(--bg-base)' }}>
       {/* ── Thumbnail Sidebar ── */}
       <div style={{
-        width: 168, minWidth: 168,
-        background: 'rgba(10,10,20,0.6)',
-        borderRight: '1px solid var(--border-color)',
-        overflowY: 'auto', padding: '12px 8px',
-        display: 'flex', flexDirection: 'column', gap: 8,
+        width: 220, minWidth: 220,
+        background: 'rgba(255, 255, 255, 0.85)',
+        backdropFilter: 'blur(12px)',
+        WebkitBackdropFilter: 'blur(12px)',
+        borderRight: '1px solid var(--border)',
+        overflowY: 'auto', padding: '14px 10px',
+        display: 'flex', flexDirection: 'column', gap: 10,
       }}>
         {list.map((s, i) => {
           const thumbSrc = s.imageData || s.imageUrl || '';
+          const isActive = i === current;
           return (
-            <button key={i} onClick={() => { setVisible(true); setCurrent(i); }} style={{
-              border: i === current ? '2px solid #6366f1' : '2px solid transparent',
-              borderRadius: 8, overflow: 'hidden', padding: 0,
-              cursor: 'pointer', background: 'transparent',
-              boxShadow: i === current ? '0 0 12px rgba(99,102,241,0.5)' : 'none',
-              transition: 'all 0.2s', flexShrink: 0,
-            }}>
+            <button
+              key={i}
+              onClick={() => { setVisible(true); setCurrent(i); }}
+              style={{
+                border: isActive ? '2px solid var(--accent)' : '1px solid var(--border)',
+                borderRadius: 'var(--radius-md)',
+                overflow: 'hidden',
+                padding: 0,
+                cursor: 'pointer',
+                background: isActive ? '#f3e8ff' : '#ffffff',
+                boxShadow: isActive ? '0 4px 14px rgba(109, 40, 217, 0.15)' : 'var(--shadow-sm)',
+                transition: 'var(--transition)',
+                flexShrink: 0,
+                textAlign: 'left',
+              }}
+            >
               <div style={{
                 width: '100%', aspectRatio: '16/9',
                 background: thumbSrc
-                  ? `linear-gradient(rgba(0,0,0,0.5),rgba(0,0,0,0.5)), url(${thumbSrc}) center/cover`
-                  : 'linear-gradient(135deg,#1e1b4b,#312e81)',
-                display: 'flex', flexDirection: 'column', justifyContent: 'flex-end',
-                padding: '6px 7px',
+                  ? `url(${thumbSrc}) center/cover no-repeat`
+                  : 'linear-gradient(135deg, #f3e8ff, #e2e8f0)',
+                position: 'relative',
               }}>
-                <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.5)', marginBottom: 2 }}>{i + 1}</div>
-                <div style={{ fontSize: 9, fontWeight: 700, color: '#fff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.title}</div>
+                <div style={{
+                  position: 'absolute', top: 4, left: 6,
+                  fontSize: 10, fontWeight: 700,
+                  color: thumbSrc ? '#ffffff' : 'var(--accent)',
+                  background: thumbSrc ? 'rgba(15,23,42,0.6)' : '#ffffff',
+                  padding: '1px 6px', borderRadius: 4,
+                  fontFamily: 'var(--font-heading)',
+                }}>
+                  {i + 1}
+                </div>
+              </div>
+              <div style={{ padding: '6px 8px' }}>
+                <div style={{
+                  fontSize: 11, fontWeight: 700,
+                  color: isActive ? 'var(--accent)' : 'var(--text-primary)',
+                  whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                  fontFamily: 'var(--font-heading)',
+                }}>
+                  {s.title}
+                </div>
               </div>
             </button>
           );
         })}
       </div>
 
-      {/* ── Main Area ── */}
+      {/* ── Main Presentation Area ── */}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
 
         {/* ── Export Toolbar ── */}
         <div style={{
-          display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'flex-end',
-          padding: '8px 16px',
-          background: 'rgba(10,10,20,0.5)', borderBottom: '1px solid var(--border-color)',
+          display: 'flex', alignItems: 'center', gap: 10, justifyContent: 'flex-end',
+          padding: '10px 24px',
+          background: 'rgba(255, 255, 255, 0.85)',
+          backdropFilter: 'blur(12px)',
+          WebkitBackdropFilter: 'blur(12px)',
+          borderBottom: '1px solid var(--border)',
         }}>
           {exportError && (
-            <span style={{ fontSize: 11, color: '#f87171', marginRight: 8 }}>⚠ {exportError}</span>
+            <span style={{ fontSize: 12, color: 'var(--red)', marginRight: 8 }}>⚠ {exportError}</span>
           )}
           <button
             id="export-pdf-btn"
@@ -279,13 +309,14 @@ export default function SlidesWithImagesViewer({ slides, docTitle }) {
             disabled={!!exporting}
             style={{
               display: 'flex', alignItems: 'center', gap: 6,
-              padding: '6px 14px', borderRadius: 8, fontSize: '0.8rem',
+              padding: '7px 16px', borderRadius: 'var(--radius-sm)', fontSize: '0.82rem',
               fontFamily: 'var(--font-heading)', fontWeight: 600,
-              background: exporting === 'pdf' ? 'rgba(239,68,68,0.25)' : 'rgba(239,68,68,0.15)',
-              border: '1px solid rgba(239,68,68,0.4)',
-              color: exporting === 'pdf' ? '#fca5a5' : '#f87171',
+              background: '#ffffff',
+              border: '1px solid rgba(219, 39, 119, 0.3)',
+              color: 'var(--pink)',
               cursor: exporting ? 'not-allowed' : 'pointer',
-              transition: 'all 0.2s',
+              transition: 'var(--transition)',
+              boxShadow: 'var(--shadow-sm)',
             }}
           >
             {exporting === 'pdf' ? '⏳' : '📄'} {exporting === 'pdf' ? 'Generating PDF...' : 'Download PDF'}
@@ -296,69 +327,92 @@ export default function SlidesWithImagesViewer({ slides, docTitle }) {
             disabled={!!exporting}
             style={{
               display: 'flex', alignItems: 'center', gap: 6,
-              padding: '6px 14px', borderRadius: 8, fontSize: '0.8rem',
+              padding: '7px 16px', borderRadius: 'var(--radius-sm)', fontSize: '0.82rem',
               fontFamily: 'var(--font-heading)', fontWeight: 600,
-              background: exporting === 'pptx' ? 'rgba(245,158,11,0.25)' : 'rgba(245,158,11,0.15)',
-              border: '1px solid rgba(245,158,11,0.4)',
-              color: exporting === 'pptx' ? '#fcd34d' : '#f59e0b',
+              background: 'var(--accent)',
+              border: 'none',
+              color: '#ffffff',
               cursor: exporting ? 'not-allowed' : 'pointer',
-              transition: 'all 0.2s',
+              transition: 'var(--transition)',
+              boxShadow: '0 4px 14px rgba(109, 40, 217, 0.2)',
             }}
           >
             {exporting === 'pptx' ? '⏳' : '📊'} {exporting === 'pptx' ? 'Generating PPTX...' : 'Download PPTX'}
           </button>
         </div>
 
-        {/* ── Slide Card ── */}
-        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px 28px', overflow: 'hidden' }}>
+        {/* ── Slide Canvas Presentation Card ── */}
+        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px 36px', overflow: 'hidden' }}>
           <div style={{
-            width: '100%', maxWidth: 840, aspectRatio: '16/9',
-            borderRadius: 16, overflow: 'hidden', position: 'relative',
-            boxShadow: '0 24px 80px rgba(0,0,0,0.7)',
-            background: hasImage ? `url(${imgSrc}) center/cover no-repeat` : 'linear-gradient(135deg,#1e1b4b,#312e81,#4c1d95)',
+            width: '100%', maxWidth: 860, aspectRatio: '16/9',
+            borderRadius: 'var(--radius-xl)', overflow: 'hidden', position: 'relative',
+            boxShadow: 'var(--shadow-lg)',
+            border: '1px solid var(--border-med)',
+            background: hasImage ? `url(${imgSrc}) center/cover no-repeat` : 'linear-gradient(135deg, #ffffff 0%, #f3e8ff 100%)',
             opacity: visible ? 1 : 0,
-            transform: visible ? 'translateX(0) scale(1)' : `translateX(${animDir === 'left' ? '-36px' : '36px'}) scale(0.97)`,
+            transform: visible ? 'translateX(0) scale(1)' : `translateX(${animDir === 'left' ? '-24px' : '24px'}) scale(0.98)`,
             transition: 'opacity 0.18s ease, transform 0.18s ease',
           }}>
-            {/* Dark overlay */}
+            {/* Overlay gradient for maximum readability */}
             <div style={{
               position: 'absolute', inset: 0,
-              background: isTitle
-                ? 'linear-gradient(to bottom, rgba(0,0,0,0.25) 0%, rgba(0,0,0,0.6) 55%, rgba(0,0,0,0.85) 100%)'
-                : 'linear-gradient(to bottom, rgba(0,0,0,0.15) 0%, rgba(0,0,0,0.55) 40%, rgba(0,0,0,0.88) 100%)',
+              background: hasImage
+                ? 'linear-gradient(to bottom, rgba(15,23,42,0.2) 0%, rgba(15,23,42,0.65) 50%, rgba(15,23,42,0.9) 100%)'
+                : 'transparent',
             }} />
 
-            {/* Slide number */}
+            {/* Slide counter badge */}
             <div style={{
-              position: 'absolute', top: 14, right: 18,
-              fontSize: 10, color: 'rgba(255,255,255,0.45)',
+              position: 'absolute', top: 16, right: 20,
+              fontSize: 11, fontWeight: 700,
+              color: hasImage ? '#ffffff' : 'var(--accent)',
               fontFamily: 'var(--font-heading)',
-              background: 'rgba(0,0,0,0.3)', borderRadius: 20, padding: '2px 9px',
-            }}>{current + 1} / {list.length}</div>
+              background: hasImage ? 'rgba(15,23,42,0.6)' : '#ffffff',
+              borderRadius: 20, padding: '3px 12px',
+              border: hasImage ? '1px solid rgba(255,255,255,0.2)' : '1px solid var(--border-hi)',
+              boxShadow: 'var(--shadow-sm)',
+            }}>
+              {current + 1} / {list.length}
+            </div>
 
-            {/* Content */}
+            {/* Content Container */}
             <div style={{
               position: 'absolute', inset: 0,
               display: 'flex', flexDirection: 'column',
               justifyContent: isTitle ? 'center' : 'flex-end',
-              padding: isTitle ? '36px 52px' : '24px 44px 32px',
+              padding: isTitle ? '40px 56px' : '28px 48px 36px',
             }}>
               {slide.subtitle && isTitle && (
-                <div style={{ fontSize: 11, fontFamily: 'var(--font-heading)', fontWeight: 600, color: 'rgba(165,180,252,0.9)', letterSpacing: 3, textTransform: 'uppercase', marginBottom: 12 }}>
+                <div style={{
+                  fontSize: 12, fontFamily: 'var(--font-heading)', fontWeight: 700,
+                  color: hasImage ? '#c4b5fd' : 'var(--accent)',
+                  letterSpacing: 3, textTransform: 'uppercase', marginBottom: 12,
+                }}>
                   {slide.subtitle}
                 </div>
               )}
               <h2 style={{
-                fontSize: isTitle ? '2.2rem' : '1.7rem', fontFamily: 'var(--font-heading)', fontWeight: 800,
-                color: '#fff', lineHeight: 1.2, marginBottom: isTitle ? 18 : 14,
-                textShadow: '0 2px 12px rgba(0,0,0,0.7)',
-              }}>{slide.title}</h2>
+                fontSize: isTitle ? '2.3rem' : '1.75rem', fontFamily: 'var(--font-heading)', fontWeight: 800,
+                color: hasImage ? '#ffffff' : 'var(--text-primary)', lineHeight: 1.25, marginBottom: isTitle ? 18 : 14,
+                textShadow: hasImage ? '0 2px 12px rgba(0,0,0,0.8)' : 'none',
+              }}>
+                {slide.title}
+              </h2>
 
               {slide.bullets?.length > 0 && (
-                <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: 7 }}>
+                <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
                   {slide.bullets.map((b, bi) => (
-                    <li key={bi} style={{ display: 'flex', alignItems: 'flex-start', gap: 9, fontSize: '0.9rem', color: 'rgba(255,255,255,0.9)', lineHeight: 1.5 }}>
-                      <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#a5b4fc', flexShrink: 0, marginTop: 7 }} />
+                    <li key={bi} style={{
+                      display: 'flex', alignItems: 'flex-start', gap: 10,
+                      fontSize: '0.92rem',
+                      color: hasImage ? 'rgba(255,255,255,0.95)' : 'var(--text-primary)',
+                      lineHeight: 1.55,
+                    }}>
+                      <span style={{
+                        width: 6, height: 6, borderRadius: '50%',
+                        background: hasImage ? '#c4b5fd' : 'var(--accent)',
+                        flexShrink: 0, marginTop: 7,
+                      }} />
                       {b}
                     </li>
                   ))}
@@ -366,46 +420,64 @@ export default function SlidesWithImagesViewer({ slides, docTitle }) {
               )}
 
               {slide.speakerNotes && (
-                <div style={{ marginTop: 14, padding: '7px 12px', background: 'rgba(0,0,0,0.4)', borderRadius: 7, borderLeft: '3px solid rgba(165,180,252,0.5)', fontSize: '0.72rem', color: 'rgba(255,255,255,0.5)', lineHeight: 1.5 }}>
-                  <strong style={{ color: 'rgba(165,180,252,0.7)' }}>Notes: </strong>{slide.speakerNotes}
+                <div style={{
+                  marginTop: 16, padding: '8px 14px',
+                  background: hasImage ? 'rgba(15,23,42,0.65)' : '#ffffff',
+                  backdropFilter: 'blur(8px)',
+                  borderRadius: 'var(--radius-sm)',
+                  borderLeft: `3px solid ${hasImage ? '#c4b5fd' : 'var(--accent)'}`,
+                  fontSize: '0.75rem',
+                  color: hasImage ? 'rgba(255,255,255,0.75)' : 'var(--text-secondary)',
+                  lineHeight: 1.5,
+                  boxShadow: hasImage ? 'none' : 'var(--shadow-sm)',
+                }}>
+                  <strong style={{ color: hasImage ? '#c4b5fd' : 'var(--accent)' }}>Notes: </strong>
+                  {slide.speakerNotes}
                 </div>
               )}
             </div>
           </div>
         </div>
 
-        {/* ── Navigation ── */}
+        {/* ── Bottom Navigation Controls ── */}
         <div style={{
-          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 16, padding: '10px 24px',
-          background: 'rgba(10,10,20,0.5)', borderTop: '1px solid var(--border-color)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 18, padding: '12px 24px',
+          background: '#ffffff', borderTop: '1px solid var(--border)',
         }}>
-          <button onClick={() => navigate(-1)} disabled={current === 0} style={{
-            padding: '7px 18px', borderRadius: 8,
-            background: current === 0 ? 'rgba(255,255,255,0.04)' : 'rgba(99,102,241,0.15)',
-            border: '1px solid rgba(99,102,241,0.3)',
-            color: current === 0 ? 'var(--text-muted)' : '#a5b4fc',
-            fontSize: '0.82rem', fontFamily: 'var(--font-heading)', fontWeight: 600,
-            cursor: current === 0 ? 'not-allowed' : 'pointer', transition: 'all 0.2s',
-          }}>← Prev</button>
+          <button
+            onClick={() => navigate(-1)}
+            disabled={current === 0}
+            className="btn-secondary"
+            style={{ opacity: current === 0 ? 0.5 : 1, cursor: current === 0 ? 'not-allowed' : 'pointer' }}
+          >
+            ← Prev
+          </button>
 
-          <div style={{ display: 'flex', gap: 5 }}>
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
             {list.map((_, i) => (
-              <div key={i} onClick={() => setCurrent(i)} style={{
-                width: i === current ? 22 : 7, height: 7, borderRadius: 4,
-                background: i === current ? '#6366f1' : 'rgba(255,255,255,0.2)',
-                cursor: 'pointer', transition: 'all 0.28s',
-              }} />
+              <div
+                key={i}
+                onClick={() => setCurrent(i)}
+                style={{
+                  width: i === current ? 24 : 8,
+                  height: 8,
+                  borderRadius: 4,
+                  background: i === current ? 'var(--accent)' : 'var(--border-med)',
+                  cursor: 'pointer',
+                  transition: 'var(--transition)',
+                }}
+              />
             ))}
           </div>
 
-          <button onClick={() => navigate(1)} disabled={current === list.length - 1} style={{
-            padding: '7px 18px', borderRadius: 8,
-            background: current === list.length - 1 ? 'rgba(255,255,255,0.04)' : 'rgba(99,102,241,0.15)',
-            border: '1px solid rgba(99,102,241,0.3)',
-            color: current === list.length - 1 ? 'var(--text-muted)' : '#a5b4fc',
-            fontSize: '0.82rem', fontFamily: 'var(--font-heading)', fontWeight: 600,
-            cursor: current === list.length - 1 ? 'not-allowed' : 'pointer', transition: 'all 0.2s',
-          }}>Next →</button>
+          <button
+            onClick={() => navigate(1)}
+            disabled={current === list.length - 1}
+            className="btn-secondary"
+            style={{ opacity: current === list.length - 1 ? 0.5 : 1, cursor: current === list.length - 1 ? 'not-allowed' : 'pointer' }}
+          >
+            Next →
+          </button>
         </div>
       </div>
     </div>
