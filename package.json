@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build && node scripts/create-hyperframes-snapshot.js",
+    "build": "vite build",
     "lint": "oxlint",
     "preview": "vite preview",
     "remotion:studio": "remotion studio remotion/index.jsx",
@@ -14,8 +14,6 @@
   "dependencies": {
     "@remotion/player": "^4.0.508",
     "@remotion/three": "^4.0.508",
-    "@vercel/blob": "^2.3.3",
-    "@vercel/sandbox": "^1.6.0",
     "canvas-confetti": "^1.9.4",
     "jspdf": "^4.2.1",
     "lucide-react": "^1.31.0",
