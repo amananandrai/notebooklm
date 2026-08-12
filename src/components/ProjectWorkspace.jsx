@@ -9,12 +9,15 @@ import InfographicViewer from './InfographicViewer';
 import StudyGuideViewer from './StudyGuideViewer';
 import ChatAssistant from './ChatAssistant';
 import VideoStudio from './VideoStudio';
+import VideoExportStudio from '../video/VideoExportStudio';
+import HyperFramesStudio from '../video/HyperFramesStudio';
 
 const MCP_ENDPOINT = window.location.origin.includes('5173') || window.location.origin.includes('localhost')
   ? 'http://127.0.0.1:8080/mcp'
   : '/mcp';
 
 const TABS = [
+  { id: 'hyperframes', label: 'HyperFrames', icon: 'HF' },
   { id: 'mindmap',    label: 'Mind Map',        icon: '🧠' },
   { id: 'audio',      label: 'Audio',           icon: '🎙️' },
   { id: 'slides',     label: 'Slides',          icon: '📊' },
@@ -26,6 +29,7 @@ const TABS = [
 ];
 
 const TAB_META = {
+  hyperframes: { title: 'HyperFrames Studio', desc: 'Create deterministic HTML-based videos from slides, text, diagrams, and reusable visual templates.', icon: 'HF', feats: ['HTML video templates', 'Frame-accurate captions', 'Landscape, square, and vertical exports'] },
   mindmap:    { title: 'Mind Map',           desc: 'Gemini will extract the key concepts, sections, and relationships from your PDF and build an interactive hierarchical mind map.',  icon: '🧠', feats: ['Hierarchical nodes', 'Color-coded categories', 'Interactive zoom & pan'] },
   audio:      { title: 'Audio Overview',     desc: 'Gemini will generate a two-host podcast-style conversation exploring the key ideas in your document — just like NotebookLM.', icon: '🎙️', feats: ['Two-host dialogue', 'Natural conversation', 'Document-grounded facts'] },
   slides:     { title: 'Slide Deck',         desc: 'Gemini will create a professional slide deck with titles, bullets, and speaker notes derived from your PDF\'s real content.',       icon: '📊', feats: ['5 structured slides', 'Speaker notes', 'Real document content'] },
@@ -337,6 +341,15 @@ export default function ProjectWorkspace({ project, onBack }) {
       );
     }
 
+    if (activeTab === 'hyperframes') {
+      const audioData = artifacts[`${activeDocId}_audio`];
+      const slidesData = artifacts[`${activeDocId}_slides`];
+      if (!audioData || !slidesData) {
+        return <div className="studio-empty"><div className="studio-empty-icon">HF</div><div className="studio-empty-title">Generate audio and slides first</div><div className="studio-empty-desc">HyperFrames uses the same narration and slide data as Video Studio.</div><button className="btn-generate" onClick={() => handleTabChange(!audioData ? 'audio' : 'slides')}>Go to Generate →</button></div>;
+      }
+      return <div style={{ height: '100%' }}><HyperFramesStudio slides={slidesData} script={audioData} /></div>;
+    }
+
     if (activeTab === 'video') {
       const audioKey = `${activeDocId}_audio`;
       const slidesKey = `${activeDocId}_slides`;
@@ -389,11 +402,9 @@ export default function ProjectWorkspace({ project, onBack }) {
               </button>
             </div>
           </div>
-          <div style={{ flex: 1, overflow: 'hidden' }}>
-            <VideoStudio
-              slides={slidesData}
-              script={audioData}
-            />
+          <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+            <div style={{ flex: '0 0 48%', minHeight: 280, overflow: 'hidden' }}><VideoStudio slides={slidesData} script={audioData} /></div>
+            <div style={{ flex: 1, minHeight: 280, overflow: 'hidden', borderTop: '1px solid var(--border)' }}><VideoExportStudio slides={slidesData} script={audioData} /></div>
           </div>
         </div>
       );

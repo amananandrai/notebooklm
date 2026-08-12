@@ -10,6 +10,7 @@ import urllib.request
 import wave
 from typing import Any, List, Optional, Union
 from fastapi import FastAPI, Request, HTTPException
+from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 from pydantic import BaseModel
@@ -85,6 +86,18 @@ class ArtifactSchema(BaseModel):
 
 class TTSRequest(BaseModel):
     turns: List[dict]
+
+class VideoRenderRequest(BaseModel):
+    composition: str = "podcast"
+    timeline: dict
+    showCaptions: bool = True
+
+class HyperFramesRenderRequest(BaseModel):
+    template: str = "document-summary"
+    timeline: dict
+    showCaptions: bool = True
+
+VIDEO_RENDER_JOBS = {}
 
 
 def _synthesize_video_audio(turns: List[dict]) -> dict:
@@ -184,6 +197,71 @@ async def synthesize_tts(request: TTSRequest):
     except Exception as exc:
         print(f"[TTS Error] {exc}")
         raise HTTPException(status_code=500, detail=f"Video narration failed: {exc}")
+
+
+def _start_video_render(composition_id: str, props: dict, job_id: str, output_path: str):
+    """Start a local Remotion render. The process is polled through the job endpoint."""
+    project_root = os.path.dirname(os.path.abspath(__file__))
+    props_path = os.path.join(project_root, ".tmp_tts", f"{job_id}.json")
+    os.makedirs(os.path.dirname(props_path), exist_ok=True)
+    with open(props_path, "w", encoding="utf-8") as props_file:
+        json.dump(props, props_file)
+    command = [
+        "npx", "remotion", "render", "remotion/index.jsx", composition_id,
+        output_path, f"--props={props_path}", "--log=progress",
+    ]
+    process = subprocess.Popen(command, cwd=project_root, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    VIDEO_RENDER_JOBS[job_id] = {"process": process, "output": output_path, "props": props_path, "status": "rendering", "logs": []}
+
+
+@app.post("/api/videos/render")
+async def render_video(request: VideoRenderRequest):
+    composition_map = {
+        "podcast": "PodcastStudioComposition",
+        "summary": "DocumentSummaryComposition",
+        "social": "SocialShortComposition",
+    }
+    composition_id = composition_map.get(request.composition)
+    if not composition_id:
+        raise HTTPException(status_code=400, detail="Unsupported Remotion composition")
+    job_id = f"video_{int(__import__('time').time() * 1000)}"
+    render_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "renders")
+    os.makedirs(render_dir, exist_ok=True)
+    output_path = os.path.join(render_dir, f"{job_id}.mp4")
+    try:
+        _start_video_render(composition_id, {"timeline": request.timeline, "showCaptions": request.showCaptions}, job_id, output_path)
+    except FileNotFoundError:
+        raise HTTPException(status_code=503, detail="Node.js and Remotion are required for MP4 rendering")
+    return {"jobId": job_id, "status": "rendering", "message": "Remotion MP4 render started"}
+
+
+@app.get("/api/videos/render/{job_id}")
+async def get_video_render_status(job_id: str):
+    job = VIDEO_RENDER_JOBS.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Render job not found")
+    process = job["process"]
+    if process.poll() is None:
+        return {"jobId": job_id, "status": "rendering"}
+    job["status"] = "complete" if process.returncode == 0 and os.path.exists(job["output"]) else "error"
+    if job["status"] == "complete":
+        return {"jobId": job_id, "status": "complete", "downloadUrl": f"/api/videos/{job_id}/download"}
+    return {"jobId": job_id, "status": "error", "message": "Remotion failed to render the composition"}
+
+
+@app.get("/api/videos/{video_id}/download")
+async def download_video(video_id: str):
+    job = VIDEO_RENDER_JOBS.get(video_id)
+    if not job or not os.path.exists(job["output"]):
+        raise HTTPException(status_code=404, detail="Rendered video is not ready")
+    return FileResponse(job["output"], media_type="video/mp4", filename="notebooklm_video.mp4")
+
+
+@app.post("/api/hyperframes/render")
+async def render_hyperframes(request: HyperFramesRenderRequest):
+    """HyperFrames integration seam. The HTML payload is ready for the HyperFrames CLI/worker."""
+    job_id = f"hyperframes_{int(__import__('time').time() * 1000)}"
+    return {"jobId": job_id, "status": "queued", "message": "HyperFrames render queued. Configure the HyperFrames CLI worker to process this HTML composition."}
 
 
 # ── REST API Endpoints for MongoDB Storage ───────────────────────
