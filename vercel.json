@@ -1,49 +1,24 @@
 {
-  "version": 2,
-  "builds": [
+  "rewrites": [
     {
-      "src": "package.json",
-      "use": "@vercel/static-build",
-      "config": {
-        "distDir": "dist"
-      }
+      "source": "/api/hyperframes/render",
+      "destination": "/api/hyperframes-render.js"
     },
     {
-      "src": "api/index.py",
-      "use": "@vercel/python"
+      "source": "/api/hyperframes/render/(.*)",
+      "destination": "/api/hyperframes-status.js"
     },
     {
-      "src": "api/hyperframes-render.js",
-      "use": "@vercel/node",
-      "config": {
-        "includeFiles": ["api/hyperframes-render.js"]
-      }
+      "source": "/api/(.*)",
+      "destination": "/api/index.py"
     },
     {
-      "src": "api/hyperframes-status.js",
-      "use": "@vercel/node"
-    }
-  ],
-  "routes": [
-    {
-      "src": "/api/hyperframes/render",
-      "dest": "api/hyperframes-render.js"
+      "source": "/mcp",
+      "destination": "/api/index.py"
     },
     {
-      "src": "/api/hyperframes/render/(.*)",
-      "dest": "api/hyperframes-status.js"
-    },
-    {
-      "src": "/api/(.*)",
-      "dest": "api/index.py"
-    },
-    {
-      "src": "/mcp",
-      "dest": "api/index.py"
-    },
-    {
-      "src": "/(.*)",
-      "dest": "/$1"
+      "source": "/((?!api/|mcp).*)",
+      "destination": "/index.html"
     }
   ],
   "functions": {
