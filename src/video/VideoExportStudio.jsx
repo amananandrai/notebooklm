@@ -39,17 +39,20 @@ export default function VideoExportStudio({ slides, script }) {
     }
   }
 
-  return <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--bg-base)', color: 'var(--text-primary)' }}>
-    <div style={{ padding: '14px 20px', display: 'flex', alignItems: 'center', gap: 12, borderBottom: '1px solid var(--border)', flexWrap: 'wrap' }}>
-      <strong>Remotion Export</strong>
-      {['podcast', 'summary', 'social'].map((item) => <button key={item} onClick={() => setComposition(item)} style={{ padding: '7px 12px', borderRadius: 7, border: '1px solid var(--border-hi)', background: composition === item ? 'var(--accent)' : 'var(--bg-active)', color: '#fff', cursor: 'pointer' }}>{item === 'podcast' ? 'Podcast Studio' : item === 'summary' ? 'Document Summary' : 'Social Short'}</button>)}
-      <select value={aspect} onChange={(event) => setAspect(event.target.value)} style={{ marginLeft: 'auto', padding: 7, background: 'var(--bg-active)', color: 'inherit', border: '1px solid var(--border-hi)', borderRadius: 7 }}>{Object.entries(ASPECT_RATIOS).map(([key, value]) => <option key={key} value={key}>{value.label}</option>)}</select>
-      <label style={{ fontSize: 12 }}><input type="checkbox" checked={showCaptions} onChange={(event) => setShowCaptions(event.target.checked)} /> Captions</label>
-      <button onClick={renderVideo} disabled={renderState.status === 'rendering'} className="btn-generate">Render MP4</button>
+  return <div className="video-export-root">
+    <div className="video-export-toolbar">
+      <div className="video-export-modes" role="tablist" aria-label="Video composition">
+        {['podcast', 'summary', 'social'].map((item) => <button className={composition === item ? 'video-export-mode active' : 'video-export-mode'} key={item} onClick={() => setComposition(item)} role="tab" aria-selected={composition === item}>{item === 'podcast' ? 'Podcast' : item === 'summary' ? 'Summary' : 'Social Short'}</button>)}
+      </div>
+      <div className="video-export-settings">
+        <label className="video-export-select-label">Format<select value={aspect} onChange={(event) => setAspect(event.target.value)}>{Object.entries(ASPECT_RATIOS).map(([key, value]) => <option key={key} value={key}>{value.label}</option>)}</select></label>
+        <label className="video-export-caption-toggle"><input type="checkbox" checked={showCaptions} onChange={(event) => setShowCaptions(event.target.checked)} /> Captions</label>
+        <button onClick={renderVideo} disabled={renderState.status === 'rendering'} className="btn-generate video-export-button">{renderState.status === 'rendering' ? 'Rendering…' : 'Render MP4'}</button>
+      </div>
     </div>
-    <div style={{ flex: 1, minHeight: 0, display: 'grid', placeItems: 'center', padding: 20 }}>
-      <Player component={Component} inputProps={{ timeline, showCaptions }} durationInFrames={timeline.durationInFrames} compositionWidth={timeline.width} compositionHeight={timeline.height} fps={timeline.fps} controls style={{ maxWidth: '100%', maxHeight: '100%', aspectRatio: `${timeline.width}/${timeline.height}`, background: '#080a12' }} />
+    <div className="video-export-preview">
+      <Player component={Component} inputProps={{ timeline, showCaptions }} durationInFrames={timeline.durationInFrames} compositionWidth={timeline.width} compositionHeight={timeline.height} fps={timeline.fps} controls style={{ width: 'min(100%, 720px)', maxHeight: '100%', aspectRatio: `${timeline.width}/${timeline.height}`, background: '#080a12', border: '1px solid var(--border-med)', borderRadius: 12, overflow: 'hidden', boxShadow: 'var(--shadow-md)' }} />
     </div>
-    {renderState.message && <div style={{ padding: '10px 20px', borderTop: '1px solid var(--border)', color: renderState.status === 'error' ? '#fecaca' : 'var(--text-muted)' }}>{renderState.message} {renderState.downloadUrl && <a href={renderState.downloadUrl} download style={{ color: 'var(--accent-lit)' }}>Download MP4</a>}</div>}
+    {renderState.message && <div className={`video-export-status ${renderState.status === 'error' ? 'error' : ''}`}>{renderState.message} {renderState.downloadUrl && <a href={renderState.downloadUrl} download>Download MP4</a>}</div>}
   </div>;
 }

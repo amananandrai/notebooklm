@@ -918,7 +918,7 @@ export default function VideoStudio({ slides, script }) {
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--bg-base)' }}>
+    <div className="video-studio-live-root">
       
       {/* Hidden 2D Canvas used for drawing blackboard texture */}
       <canvas
@@ -931,11 +931,7 @@ export default function VideoStudio({ slides, script }) {
       {/* 3D WebGL Canvas Holder */}
       <div
         ref={mountRef}
-        style={{
-          width: '100%', height: '420px', position: 'relative',
-          overflow: 'hidden', borderBottom: '1px solid var(--border)',
-          boxShadow: 'inset 0 4px 20px #0008',
-        }}
+        className="video-stage"
       >
         {isRecording && (
           <div style={{
@@ -986,7 +982,7 @@ export default function VideoStudio({ slides, script }) {
       )}
 
       {/* Video Studio Controls */}
-      <div className="audio-controls" style={{ background: 'var(--bg-elevated)', padding: '14px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+      <div className="audio-controls video-studio-controls">
         
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <button className="audio-btn play-btn" onClick={handlePlayPause}>

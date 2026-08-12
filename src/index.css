@@ -711,6 +711,43 @@ textarea.modal-input { resize: vertical; min-height: 80px; }
   text-transform: uppercase; letter-spacing: 0.05em;
 }
 
+/* 3D video studio layout */
+.video-studio-shell { height: 100%; min-height: 0; display: flex; flex-direction: column; background: var(--bg-base); }
+.video-studio-shell-header { min-height: 58px; padding: 10px 18px; }
+.video-studio-workspace { flex: 1; min-height: 0; overflow: auto; display: grid; grid-template-rows: minmax(320px, 1.15fr) minmax(300px, .85fr); gap: 12px; padding: 12px 16px 16px; }
+.video-studio-card { min-height: 0; display: flex; flex-direction: column; overflow: hidden; background: var(--bg-surface); border: 1px solid var(--border-med); border-radius: var(--radius-md); box-shadow: var(--shadow-sm); }
+.video-studio-card-header { min-height: 58px; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 10px 16px; border-bottom: 1px solid var(--border); background: linear-gradient(180deg, #ffffff05, transparent); }
+.video-studio-card-title { font-size: 13px; font-weight: 750; color: var(--text-primary); }
+.video-studio-card-subtitle { margin-top: 2px; font-size: 11px; color: var(--text-muted); }
+.video-studio-card-body { flex: 1; min-height: 0; overflow: hidden; }
+.video-studio-card-status, .video-studio-card-kicker { display: inline-flex; align-items: center; gap: 6px; padding: 4px 9px; border-radius: 99px; font-size: 10px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; white-space: nowrap; }
+.video-studio-card-status { color: #86efac; background: #22c55e14; border: 1px solid #22c55e30; }
+.video-studio-card-status span { width: 6px; height: 6px; border-radius: 50%; background: var(--green); box-shadow: 0 0 8px var(--green); }
+.video-studio-card-kicker { color: var(--accent-lit); background: var(--accent-dim); border: 1px solid #7c6cf640; }
+.video-studio-live-root, .video-export-root { height: 100%; min-height: 0; display: flex; flex-direction: column; background: var(--bg-base); color: var(--text-primary); }
+.video-stage { width: 100%; height: clamp(230px, 30vh, 350px); position: relative; overflow: hidden; border-bottom: 1px solid var(--border); box-shadow: inset 0 4px 20px #0008; flex-shrink: 0; }
+.video-studio-controls { min-height: 62px; padding: 10px 14px; background: var(--bg-elevated); border-bottom: 1px solid var(--border); }
+.video-export-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 10px 14px; border-bottom: 1px solid var(--border); background: var(--bg-elevated); flex-wrap: wrap; }
+.video-export-modes, .video-export-settings { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.video-export-mode { padding: 7px 11px; border: 1px solid var(--border-hi); border-radius: 7px; background: var(--bg-active); color: var(--text-secondary); cursor: pointer; font: inherit; font-size: 12px; font-weight: 650; transition: var(--transition); }
+.video-export-mode:hover { color: var(--text-primary); background: var(--bg-hover); }
+.video-export-mode.active { border-color: var(--accent); background: var(--accent); color: #fff; box-shadow: 0 3px 12px #7c6cf640; }
+.video-export-select-label { display: flex; align-items: center; gap: 7px; color: var(--text-muted); font-size: 11px; font-weight: 650; }
+.video-export-select-label select { padding: 7px 9px; background: var(--bg-active); color: var(--text-primary); border: 1px solid var(--border-hi); border-radius: 7px; font: inherit; font-size: 12px; }
+.video-export-caption-toggle { display: inline-flex; align-items: center; gap: 6px; color: var(--text-secondary); font-size: 12px; white-space: nowrap; }
+.video-export-button { min-height: 36px; padding: 8px 14px; }
+.video-export-preview { flex: 1; min-height: 0; display: grid; place-items: center; overflow: hidden; padding: 14px; background: radial-gradient(circle at 50% 20%, #242044 0%, #0c0d16 55%, #090a10 100%); }
+.video-export-status { padding: 8px 14px; border-top: 1px solid var(--border); color: var(--text-muted); font-size: 11px; background: var(--bg-surface); }
+.video-export-status.error { color: #fecaca; background: #7f1d1d22; }
+.video-export-status a { margin-left: 8px; color: var(--accent-lit); font-weight: 700; }
+@media (max-width: 760px) {
+  .video-studio-workspace { grid-template-rows: minmax(300px, auto) minmax(300px, auto); padding: 8px; }
+  .video-studio-card-header { padding-inline: 12px; }
+  .video-export-toolbar { align-items: stretch; }
+  .video-export-modes, .video-export-settings { width: 100%; }
+  .video-export-settings { justify-content: space-between; }
+}
+
 /* ════════════════════════════════════════════════════════════════
    SHARED BUTTONS
    ════════════════════════════════════════════════════════════════ */

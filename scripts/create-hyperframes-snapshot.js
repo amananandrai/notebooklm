@@ -14,10 +14,9 @@ async function main() {
   const token = process.env.BLOB_READ_WRITE_TOKEN;
   const deploymentId = process.env.VERCEL_DEPLOYMENT_ID;
   if (!token || !deploymentId) {
-    if (process.env.VERCEL_ENV === 'production') {
-      throw new Error('Production HyperFrames setup requires a Vercel Blob store. Connect Blob Storage so BLOB_READ_WRITE_TOKEN is available during the build.');
-    }
-    console.log('[HyperFrames snapshot] Vercel Blob or deployment credentials are unavailable; skipping local snapshot setup.');
+    // Skip snapshot setup gracefully — HyperFrames will cold-start on first use.
+    // To enable pre-warmed snapshots, connect a Vercel Blob store (BLOB_READ_WRITE_TOKEN).
+    console.log('[HyperFrames snapshot] Vercel Blob or deployment credentials are unavailable; skipping snapshot setup.');
     return;
   }
 
