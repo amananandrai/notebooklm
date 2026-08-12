@@ -18,12 +18,20 @@
       "config": {
         "includeFiles": ["api/hyperframes-render.js"]
       }
+    },
+    {
+      "src": "api/hyperframes-status.js",
+      "use": "@vercel/node"
     }
   ],
   "routes": [
     {
       "src": "/api/hyperframes/render",
       "dest": "api/hyperframes-render.js"
+    },
+    {
+      "src": "/api/hyperframes/render/(.*)",
+      "dest": "api/hyperframes-status.js"
     },
     {
       "src": "/api/(.*)",
@@ -42,6 +50,10 @@
     "api/hyperframes-render.js": {
       "maxDuration": 300,
       "memory": 3008
+    },
+    "api/hyperframes-status.js": {
+      "maxDuration": 60,
+      "memory": 1024
     }
   }
 }

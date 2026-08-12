@@ -2,6 +2,7 @@ import { get, put } from '@vercel/blob';
 import { Sandbox } from '@vercel/sandbox';
 
 export const maxDuration = 300;
+const HYPERFRAMES_SANDBOX_TIMEOUT = 60 * 60 * 1000;
 
 function escapeHtml(value) {
   return String(value ?? '')
@@ -59,7 +60,7 @@ async function createRenderSandbox() {
         return Sandbox.create({
           source: { type: 'snapshot', snapshotId },
           resources: { vcpus: 4 },
-          timeout: 10 * 60 * 1000,
+          timeout: HYPERFRAMES_SANDBOX_TIMEOUT,
         });
       }
     }
@@ -71,7 +72,7 @@ async function createRenderSandbox() {
   const sandbox = await Sandbox.create({
     runtime: 'node22',
     resources: { vcpus: 4 },
-    timeout: 10 * 60 * 1000,
+    timeout: HYPERFRAMES_SANDBOX_TIMEOUT,
   });
 
   try {
@@ -100,32 +101,31 @@ export default async function handler(request, response) {
     return;
   }
 
-  let sandbox;
   try {
     const body = typeof request.body === 'string' ? JSON.parse(request.body) : request.body || {};
     const timeline = body.timeline || {};
     const html = buildCompositionHtml(timeline, body.showCaptions !== false);
-    sandbox = await createRenderSandbox();
+    const sandbox = await createRenderSandbox();
     await sandbox.writeFiles([
       { path: 'composition/index.html', content: Buffer.from(html, 'utf8') },
       { path: 'composition/hyperframes.json', content: Buffer.from(JSON.stringify({ paths: { assets: 'assets' } }), 'utf8') },
     ]);
-    await runCommand(sandbox, 'Render HyperFrames composition', {
+    const command = await sandbox.runCommand({
       cmd: 'npx',
       args: ['--no-install', 'hyperframes', 'render', 'composition', '-o', 'out.mp4', '--workers', 'auto', '--format', 'mp4'],
+      detached: true,
     });
-    const mp4 = await sandbox.readFileToBuffer({ path: 'out.mp4' });
-    if (!mp4) throw new Error('HyperFrames produced no MP4 output');
-    const blob = await put(`renders/hyperframes-${Date.now()}.mp4`, mp4, {
-      access: 'public',
-      contentType: 'video/mp4',
-      addRandomSuffix: true,
-    });
-    response.status(200).json({ status: 'complete', downloadUrl: blob.url, message: 'HyperFrames render complete' });
+    const jobId = `hyperframes_${Date.now()}`;
+    await put(`jobs/hyperframes/${jobId}.json`, JSON.stringify({
+      jobId,
+      sandboxId: sandbox.sandboxId,
+      commandId: command.cmdId,
+      outputPath: 'out.mp4',
+      status: 'rendering',
+    }), { access: 'public', contentType: 'application/json', addRandomSuffix: false, allowOverwrite: true });
+    response.status(202).json({ jobId, status: 'rendering', message: 'HyperFrames render started' });
   } catch (error) {
     console.error('[HyperFrames/Vercel] render failed', error);
     response.status(500).json({ detail: error instanceof Error ? error.message : 'HyperFrames render failed' });
-  } finally {
-    if (sandbox) await sandbox.stop().catch(() => {});
   }
 }

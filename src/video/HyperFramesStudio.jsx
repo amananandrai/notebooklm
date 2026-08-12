@@ -34,7 +34,7 @@ export default function HyperFramesStudio({ slides, script }) {
           const baseUrl = API_BASE.replace('/api', '');
           setStatus(<span>HyperFrames render complete. <a href={`${baseUrl}${renderStatus.downloadUrl}`} download style={{ color: 'var(--accent-lit)' }}>Download MP4</a></span>);
         } else {
-          setStatus(renderStatus.message || 'HyperFrames render failed.');
+          setStatus(renderStatus.detail || renderStatus.message || 'HyperFrames render failed.');
         }
       };
       window.setTimeout(poll, 1500);
