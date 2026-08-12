@@ -1,4 +1,4 @@
-import { put } from '@vercel/blob';
+import { get, put } from '@vercel/blob';
 import { Sandbox } from '@vercel/sandbox';
 
 export const maxDuration = 300;
@@ -46,6 +46,28 @@ async function runCommand(sandbox, label, options) {
 }
 
 async function createRenderSandbox() {
+  const deploymentId = process.env.VERCEL_DEPLOYMENT_ID;
+  const blobToken = process.env.BLOB_READ_WRITE_TOKEN;
+  if (deploymentId && blobToken) {
+    const pointer = await get(`snapshot-cache/${deploymentId}.json`, {
+      access: 'public',
+      token: blobToken,
+    });
+    if (pointer?.statusCode === 200) {
+      const { snapshotId } = await new Response(pointer.stream).json();
+      if (snapshotId) {
+        return Sandbox.create({
+          source: { type: 'snapshot', snapshotId },
+          resources: { vcpus: 4 },
+          timeout: 10 * 60 * 1000,
+        });
+      }
+    }
+    if (process.env.VERCEL_ENV === 'production') {
+      throw new Error('HyperFrames render snapshot is not ready for this deployment. Redeploy after the Vercel build completes.');
+    }
+  }
+
   const sandbox = await Sandbox.create({
     runtime: 'node22',
     resources: { vcpus: 4 },

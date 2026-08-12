@@ -37,5 +37,11 @@
       "src": "/(.*)",
       "dest": "/$1"
     }
-  ]
+  ],
+  "functions": {
+    "api/hyperframes-render.js": {
+      "maxDuration": 300,
+      "memory": 3008
+    }
+  }
 }
