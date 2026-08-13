@@ -16,136 +16,178 @@ const MCP_ENDPOINT = window.location.origin.includes('5173') || window.location.
   ? 'http://127.0.0.1:8080/mcp'
   : '/mcp';
 
+async function callMCP(toolName, args) {
+  const payload = {
+    jsonrpc: '2.0',
+    id: Date.now(),
+    method: 'tools/call',
+    params: { name: toolName, arguments: args },
+  };
+
+  const response = await fetch(MCP_ENDPOINT, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    throw new Error(`MCP request failed: ${response.statusText}`);
+  }
+
+  const json = await response.json();
+  if (json.error) {
+    throw new Error(json.error.message || 'MCP tool call error');
+  }
+
+  const textContent = json.result?.content?.find(c => c.type === 'text')?.text;
+  if (!textContent) {
+    throw new Error('Empty response from MCP tool');
+  }
+
+  try {
+    return JSON.parse(textContent);
+  } catch {
+    return textContent;
+  }
+}
+
 const TABS = [
-  { id: 'hyperframes', label: 'HyperFrames', icon: 'HF' },
-  { id: 'mindmap',    label: 'Mind Map',        icon: '🧠' },
-  { id: 'audio',      label: 'Audio',           icon: '🎙️' },
-  { id: 'slides',     label: 'Slides',          icon: '📊' },
-  { id: 'slides_img', label: 'Slides + Images', icon: '🖼️' },
-  { id: 'infographic',label: 'Infographic',     icon: '📈' },
-  { id: 'video',      label: 'Video Studio',    icon: '🎬' },
-  { id: 'studyguide', label: 'Study Guide',     icon: '🎴' },
-  { id: 'chat',       label: 'Chat',            icon: '💬' },
+  { id: 'hyperframes', label: 'HF HyperFrames', icon: '⚡' },
+  { id: 'mindmap',     label: 'Mind Map',     icon: '🧠' },
+  { id: 'audio',       label: 'Audio',        icon: '🎙️' },
+  { id: 'slides',      label: 'Slides',       icon: '📊' },
+  { id: 'slides_img',  label: 'Slides + Images', icon: '🖼️' },
+  { id: 'infographic', label: 'Infographic',  icon: '📈' },
+  { id: 'video',       label: 'Video Studio', icon: '🎬' },
+  { id: 'studyguide',  label: 'Study Guide',  icon: '📕' },
+  { id: 'chat',        label: 'Chat',         icon: '💬' },
 ];
 
 const TAB_META = {
-  hyperframes: { title: 'HyperFrames Studio', desc: 'Create deterministic HTML-based videos from slides, text, diagrams, and reusable visual templates.', icon: 'HF', feats: ['HTML video templates', 'Frame-accurate captions', 'Landscape, square, and vertical exports'] },
-  mindmap:    { title: 'Mind Map',           desc: 'Gemini will extract the key concepts, sections, and relationships from your PDF and build an interactive hierarchical mind map.',  icon: '🧠', feats: ['Hierarchical nodes', 'Color-coded categories', 'Interactive zoom & pan'] },
-  audio:      { title: 'Audio Overview',     desc: 'Gemini will generate a two-host podcast-style conversation exploring the key ideas in your document — just like NotebookLM.', icon: '🎙️', feats: ['Two-host dialogue', 'Natural conversation', 'Document-grounded facts'] },
-  slides:     { title: 'Slide Deck',         desc: 'Gemini will create a professional slide deck with titles, bullets, and speaker notes derived from your PDF\'s real content.',       icon: '📊', feats: ['5 structured slides', 'Speaker notes', 'Real document content'] },
-  slides_img: { title: 'Slides with Images', desc: 'Gemini creates a full slide deck AND generates a unique AI image for each slide using Gemini Imagen — vivid visuals that match your content.', icon: '🖼️', feats: ['AI image per slide via Imagen', 'Full-bleed visual backgrounds', 'Animated slide transitions'] },
-  infographic:{ title: 'Infographic',        desc: 'Gemini analyzes your document and generates a rich visual infographic with key stats, color-coded sections, a timeline, and a key insight.', icon: '📈', feats: ['Key metric stats', 'Section summaries', 'Timeline & key insight'] },
-  video:      { title: '3D Video Studio',    desc: 'Visualize your slides and podcast audio in an interactive 3D WebGL Recording Studio with animated low-poly hosts.',      icon: '🎬', feats: ['Live 3D WebGL scene', 'Lipsync avatar animations', 'Synchronized blackboard slides'] },
-  studyguide: { title: 'Study Guide',        desc: 'Gemini will generate flashcards and multiple-choice quiz questions grounded in your PDF to help you study the material.',          icon: '🎴', feats: ['6 flashcards', '4 quiz questions', 'Spaced repetition ready'] },
-  chat:       { title: 'Q&A Chat',           desc: 'Ask anything about your PDF. Gemini will answer every question grounded in the actual document content with citations.',           icon: '💬', feats: ['Document-grounded answers', 'Citations included', 'Natural conversation'] },
+  hyperframes: { title: 'HyperFrames Render', icon: '⚡', desc: 'Render video timeline using HyperFrames HTML rendering engine.', feats: ['HTML Composition', 'Asynchronous Render Worker', 'Vercel Sandbox Renderer'] },
+  mindmap:     { title: 'Mind Map',     icon: '🧠', desc: 'Visual concept hierarchy of key ideas and their relationships.', feats: ['Interactive node tree', 'Category coloring', 'Expand/collapse branches'] },
+  audio:       { title: 'Audio Podcast', icon: '🎙️', desc: 'Two AI hosts discussing your document in an engaging conversation.', feats: ['Alex & Jordan hosts', 'Natural voice synthesis', 'Interactive transcript'] },
+  slides:      { title: 'Slide Deck',   icon: '📊', desc: 'Presentation slides with key points and speaker notes.', feats: ['Title & content slides', 'Speaker notes included', 'Export ready format'] },
+  slides_img:  { title: 'Slides + Images', icon: '🖼️', desc: 'Presentation slides enhanced with AI-generated visual illustrations.', feats: ['Flux Realism generated visuals', 'High-res image backgrounds', 'PDF & PPTX exports'] },
+  infographic: { title: 'Infographic',  icon: '📈', desc: 'Visual data summary with key metrics, timeline, and core takeaways.', feats: ['Metrics grid', 'Core sections cards', 'Timeline flow'] },
+  video:       { title: '3D Video Studio', icon: '🎬', desc: 'Interactive 3D presentation studio with AI hosts and blackboard.', feats: ['Interactive 3D avatars', 'Blackboard sync', 'Live presentation recording'] },
+  studyguide:  { title: 'Study Guide',  icon: '📕', desc: 'Flashcards and quiz questions to master your document content.', feats: ['3D Flip Flashcards', 'Practice Quiz', 'Mastery tracking'] },
+  chat:        { title: 'Chat Assistant', icon: '💬', desc: 'Ask questions and chat directly with Gemini AI about your document.', feats: ['Strict document grounding', 'Source citations', 'Download chat log'] },
 };
 
-async function callMCP(tool, args) {
-  const res = await fetch(MCP_ENDPOINT, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ jsonrpc: '2.0', method: 'tools/call', params: { name: tool, arguments: args }, id: 1 }),
-  });
-  const data = await res.json();
-  if (data.error) throw new Error(data.error.message);
-  return JSON.parse(data.result.content[0].text);
-}
-
 export default function ProjectWorkspace({ project, onBack }) {
-  const [sources, setSources]           = useState([]);   // loaded doc metadata
-  const [activeDocId, setActiveDocId]   = useState(null);
-  const [activeTab, setActiveTab]       = useState('mindmap');
-  const [ocrState, setOcrState]         = useState(null); // { fileName, progress, status }
-  const [isDragOver, setIsDragOver]     = useState(false);
-  const [artifacts, setArtifacts]       = useState({});   // { [docId_tab]: data }
-  const [generating, setGenerating]     = useState({});   // { [docId_tab]: bool }
-  const [genError, setGenError]         = useState({});   // { [docId_tab]: string }
-  const fileInputRef = useRef();
+  const [sources, setSources]         = useState(project.sources || []);
+  const [activeDocId, setActiveDocId] = useState(() => sources[0]?.id || null);
+  const [activeTab, setActiveTab]     = useState('chat');
+  const [artifacts, setArtifacts]     = useState({}); // { `${docId}_${tab}`: data }
+  const [generating, setGenerating]   = useState({}); // { `${docId}_${tab}`: bool }
+  const [genError, setGenError]       = useState({}); // { `${docId}_${tab}`: string }
+  const [ocrState, setOcrState]       = useState(null); // { fileName, progress, status }
+  const [isDragOver, setIsDragOver]   = useState(false);
+  const fileInputRef = useRef(null);
 
-  // Load stored docs when project opens
+  // Sync sources with project prop
   useEffect(() => {
-    async function loadDocs() {
-      const projects = await loadProjects();
-      const proj = projects.find(p => p.id === project.id);
-      if (!proj?.sourceIds?.length) return;
-      const docs = await Promise.all(proj.sourceIds.map(id => getDocument(id)));
-      const valid = docs.filter(Boolean);
-      setSources(valid.map(d => ({ id: d.id, title: d.title, pages: d.pages, words: d.words, uploadedAt: d.uploadedAt })));
-      if (valid.length > 0) handleDocChange(valid[0].id);
+    setSources(project.sources || []);
+    if (project.sources?.length && !activeDocId) {
+      setActiveDocId(project.sources[0].id);
     }
-    loadDocs();
-  }, []);
+  }, [project]);
 
-  // Load a cached artifact
-  async function loadArtifact(docId, tab) {
-    const key = `${docId}_${tab}`;
-    if (artifacts[key] !== undefined) return artifacts[key];
-    const cached = await getArtifact(project.id, docId, tab);
-    if (cached) {
-      setArtifacts(prev => ({ ...prev, [key]: cached }));
-    }
-    return cached;
-  }
+  // Load saved artifacts when active document changes
+  useEffect(() => {
+    if (!activeDocId) return;
+    TABS.forEach(async tab => {
+      const key = `${activeDocId}_${tab.id}`;
+      if (!artifacts[key]) {
+        const saved = await getArtifact(project.id, activeDocId, tab.id);
+        if (saved) {
+          setArtifacts(prev => ({ ...prev, [key]: saved }));
+        }
+      }
+    });
+  }, [activeDocId, project.id]);
 
-  // When active doc or tab changes, try to load cached artifact
-  async function handleTabChange(tab) {
-    setActiveTab(tab);
-    if (activeDocId) {
-      await loadArtifact(activeDocId, tab);
-    }
-  }
+  // Handle PDF upload
+  async function handleFileUpload(files) {
+    const pdfFiles = Array.from(files).filter(f => f.name.toLowerCase().endsWith('.pdf'));
+    if (!pdfFiles.length) return;
 
-  async function handleDocChange(docId) {
-    setActiveDocId(docId);
-    await loadArtifact(docId, activeTab);
-  }
+    for (const file of pdfFiles) {
+      setOcrState({ fileName: file.name, progress: 0, status: 'Reading PDF pages...' });
 
-  // ── Upload ────────────────────────────────────────────────────
-  async function processFile(file) {
-    if (!file?.name?.endsWith('.pdf')) return;
-    setOcrState({ fileName: file.name, progress: 0, status: 'Starting...' });
-    try {
-      const doc = await parsePDFFile(file, ({ status, progress }) => {
-        setOcrState({ fileName: file.name, progress, status });
-      });
-      await saveDocument(project.id, doc);
-      setSources(prev => {
-        const already = prev.find(s => s.id === doc.id);
-        if (already) return prev;
-        return [...prev, { id: doc.id, title: doc.title, pages: doc.pages, words: doc.words, uploadedAt: doc.uploadedAt }];
-      });
-      setActiveDocId(doc.id);
-    } catch (err) {
-      console.error('Upload error:', err);
-    } finally {
-      setTimeout(() => setOcrState(null), 800);
+      try {
+        const parsed = await parsePDFFile(file, (progress, status) => {
+          setOcrState({ fileName: file.name, progress, status });
+        });
+
+        const docId = `doc_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+        const newDoc = {
+          id: docId,
+          title: parsed.fileName,
+          rawText: parsed.rawText,
+          pages: parsed.numPages,
+          words: parsed.wordCount,
+          createdAt: new Date().toISOString(),
+        };
+
+        await saveDocument(project.id, newDoc);
+
+        setSources(prev => {
+          const updated = [...prev, newDoc];
+          return updated;
+        });
+        setActiveDocId(docId);
+      } catch (err) {
+        alert(`Error parsing ${file.name}: ${err.message}`);
+      } finally {
+        setOcrState(null);
+      }
     }
   }
 
   function handleFileInput(e) {
-    const files = Array.from(e.target.files || []);
-    files.forEach(processFile);
-    e.target.value = '';
+    if (e.target.files?.length) {
+      handleFileUpload(e.target.files);
+      e.target.value = '';
+    }
   }
 
   function handleDrop(e) {
-    e.preventDefault(); setIsDragOver(false);
-    const files = Array.from(e.dataTransfer.files).filter(f => f.name.endsWith('.pdf'));
-    files.forEach(processFile);
+    e.preventDefault();
+    setIsDragOver(false);
+    if (e.dataTransfer.files?.length) {
+      handleFileUpload(e.dataTransfer.files);
+    }
   }
 
-  // ── Delete source ─────────────────────────────────────────────
   async function handleDeleteSource(docId) {
-    if (!confirm('Remove this PDF from the project?')) return;
+    if (!window.confirm('Delete this source and all its generated artifacts?')) return;
     await deleteDocument(project.id, docId);
     await deleteArtifactsForDoc(project.id, docId);
-    setSources(prev => prev.filter(s => s.id !== docId));
+
+    setSources(prev => {
+      const updated = prev.filter(s => s.id !== docId);
+      if (activeDocId === docId) {
+        setActiveDocId(updated[0]?.id || null);
+      }
+      return updated;
+    });
+
+    // Clean artifacts state
     setArtifacts(prev => {
       const next = { ...prev };
-      Object.keys(next).forEach(k => { if (k.startsWith(docId)) delete next[k]; });
+      TABS.forEach(t => delete next[`${docId}_${t.id}`]);
       return next;
     });
-    if (activeDocId === docId) setActiveDocId(sources.find(s => s.id !== docId)?.id || null);
+  }
+
+  function handleDocChange(docId) {
+    setActiveDocId(docId);
+  }
+
+  function handleTabChange(tabId) {
+    setActiveTab(tabId);
   }
 
   // ── Generate ──────────────────────────────────────────────────
@@ -182,7 +224,6 @@ export default function ProjectWorkspace({ project, onBack }) {
     
     let content = '';
     let fileName = '';
-    const mimeType = 'text/plain';
 
     if (tab === 'video') {
       fileName = `${activeDoc.title.replace('.pdf', '')}_Presentation_Script.md`;
@@ -251,47 +292,26 @@ export default function ProjectWorkspace({ project, onBack }) {
             return slideStr;
           }).join('---\n\n');
       }
-
+      
       else if (tab === 'infographic') {
         fileName = `${activeDoc.title.replace('.pdf', '')}_Infographic.md`;
-        const stats = data.stats || [];
-        const sections = data.sections || [];
-        const timeline = data.timeline || [];
-        content = `# Infographic — ${data.title || activeDoc.title}\n\n`;
-        content += `**Summary:** ${data.subtitle || ''}\n\n`;
-        content += `## Key Metrics\n\n`;
-        content += stats.map(s => `- **${s.label}:** ${s.value} ${s.icon}  \n  *${s.desc}*`).join('\n') + '\n\n';
-        content += `## Sections\n\n`;
-        content += sections.map(s => `### ${s.icon} ${s.title}\n${s.summary}\n`).join('\n');
-        content += `\n## Timeline\n\n`;
-        content += timeline.map(t => `${t.step}. **${t.label}** — ${t.desc}`).join('\n') + '\n\n';
-        if (data.keyInsight) content += `## Key Insight\n\n> ${data.keyInsight}\n`;
+        content = `# Infographic Summary — ${activeDoc.title}\n\n## ${data.title}\n*${data.subtitle || ''}*\n\n` +
+          `### Key Metrics\n` + (data.stats || []).map(s => `- **${s.label}**: ${s.value} (${s.desc || ''})`).join('\n') + '\n\n' +
+          `### Core Sections\n` + (data.sections || []).map(s => `#### ${s.title}\n${s.summary}\n`).join('\n') + '\n' +
+          (data.keyInsight ? `\n> **Core Takeaway:** ${data.keyInsight}\n` : '');
       }
-
+      
       else if (tab === 'studyguide') {
         fileName = `${activeDoc.title.replace('.pdf', '')}_StudyGuide.md`;
-        const flashcards = data.flashcards || [];
-        const quiz = data.quiz || [];
-        
-        content = `# Study Guide — ${activeDoc.title}\n\n`;
-        content += `## 🎴 Flashcards (${flashcards.length})\n\n`;
-        content += flashcards.map((f, i) => `### Flashcard ${i + 1}\n**Category:** ${f.category}\n**Question:** ${f.question}\n**Answer:** ${f.answer}\n`).join('\n---\n\n');
-        
-        content += `\n\n## 🧩 Quiz Questions (${quiz.length})\n\n`;
-        content += quiz.map((q, i) => {
-          let qStr = `### Question ${i + 1}\n**Question:** ${q.question}\n`;
-          qStr += (q.options || []).map((o, oi) => `   ${String.fromCharCode(65 + oi)}) ${o}`).join('\n') + '\n';
-          qStr += `**Correct Option:** ${String.fromCharCode(65 + q.correctIndex)}\n`;
-          if (q.explanation) qStr += `**Explanation:** ${q.explanation}\n`;
-          return qStr;
-        }).join('\n---\n\n');
+        content = `# Study Guide & Quiz — ${activeDoc.title}\n\n## 🎴 Flashcards\n\n` +
+          (data.flashcards || []).map(f => `**Q:** ${f.question}\n**A:** ${f.answer}\n*Category:* ${f.category}\n`).join('\n---\n\n') +
+          `\n## 🧩 Quiz Questions\n\n` +
+          (data.quiz || []).map((q, idx) => `### Q${idx + 1}: ${q.question}\n` + (q.options || []).map((o, oi) => `  ${String.fromCharCode(65 + oi)}) ${o}`).join('\n') + `\n*Correct Answer:* Option ${String.fromCharCode(65 + q.correctIndex)}\n*Explanation:* ${q.explanation}\n`).join('\n---\n\n');
       }
     }
 
     if (!content) return;
-
-    // Trigger standard browser download anchor
-    const blob = new Blob([content], { type: `${mimeType};charset=utf-8` });
+    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
@@ -314,9 +334,23 @@ export default function ProjectWorkspace({ project, onBack }) {
     if (!activeDocId || !activeDoc) {
       return (
         <div className="ws-no-source">
-          <div className="ws-no-source-icon">📂</div>
-          <div className="ws-no-source-title">No source selected</div>
-          <div className="ws-no-source-desc">Upload a PDF on the left, then select it to start generating insights.</div>
+          <div className="ws-no-source-card glass-panel">
+            <div className="ws-no-source-icon">📄</div>
+            <div className="ws-no-source-title">Upload a PDF to get started</div>
+            <div className="ws-no-source-desc">
+              Upload your research papers, textbooks, or documents to generate AI Audio Podcasts, 3D Video Presentations, Slides, Infographics, Study Guides, and interactive Chat.
+            </div>
+            <button
+              className="btn-generate"
+              style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 24px', fontSize: 14 }}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <span>⬆</span> Upload PDF Document
+            </button>
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
+              Supports PDF documents up to 50MB
+            </div>
+          </div>
         </div>
       );
     }
@@ -503,8 +537,6 @@ export default function ProjectWorkspace({ project, onBack }) {
       </div>
     );
 
-
-
     if (activeTab === 'mindmap')    return <><div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>{contentHeader}<div style={{ flex: 1, overflow: 'hidden' }}><MindMapViewer data={artifact} /></div></div></>;
     if (activeTab === 'audio')      return <><div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>{contentHeader}<div style={{ flex: 1, overflow: 'hidden' }}><AudioPlayer script={artifact} /></div></div></>;
     if (activeTab === 'slides')     return <><div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>{contentHeader}<div style={{ flex: 1, overflow: 'hidden' }}><SlideDeckViewer slides={artifact} /></div></div></>;
@@ -567,7 +599,7 @@ export default function ProjectWorkspace({ project, onBack }) {
 
           <div className="ws-sources-list">
             {sources.length === 0 && !ocrState && (
-              <div style={{ padding: '12px 10px', fontSize: 12, color: 'var(--text-muted)', textAlign: 'center' }}>
+              <div style={{ padding: '16px 12px', fontSize: 12, color: 'var(--text-muted)', textAlign: 'center', border: '1px dashed var(--border-med)', borderRadius: 'var(--radius-md)', margin: '4px 0' }}>
                 No PDFs yet — upload one below
               </div>
             )}
@@ -616,7 +648,7 @@ export default function ProjectWorkspace({ project, onBack }) {
               <input ref={fileInputRef} type="file" accept=".pdf" multiple onChange={handleFileInput} style={{ display: 'none' }} />
               <div className="ws-upload-zone-icon">⬆</div>
               <div className="ws-upload-zone-text">Upload PDF</div>
-              <div className="ws-upload-zone-hint">Click or drag & drop</div>
+              <div className="ws-upload-zone-hint">Click or drag &amp; drop file</div>
             </div>
           </div>
         </aside>
