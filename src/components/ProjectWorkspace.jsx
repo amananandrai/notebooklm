@@ -52,7 +52,6 @@ async function callMCP(toolName, args) {
 }
 
 const TABS = [
-  { id: 'hyperframes', label: 'HF HyperFrames', icon: '⚡' },
   { id: 'mindmap',     label: 'Mind Map',     icon: '🧠' },
   { id: 'audio',       label: 'Audio',        icon: '🎙️' },
   { id: 'slides',      label: 'Slides',       icon: '📊' },
@@ -60,11 +59,11 @@ const TABS = [
   { id: 'infographic', label: 'Infographic',  icon: '📈' },
   { id: 'video',       label: 'Video Studio', icon: '🎬' },
   { id: 'studyguide',  label: 'Study Guide',  icon: '📕' },
+  { id: 'hyperframes', label: 'HF HyperFrames', icon: '⚡' },
   { id: 'chat',        label: 'Chat',         icon: '💬' },
 ];
 
 const TAB_META = {
-  hyperframes: { title: 'HyperFrames Render', icon: '⚡', desc: 'Render video timeline using HyperFrames HTML rendering engine.', feats: ['HTML Composition', 'Asynchronous Render Worker', 'Vercel Sandbox Renderer'] },
   mindmap:     { title: 'Mind Map',     icon: '🧠', desc: 'Visual concept hierarchy of key ideas and their relationships.', feats: ['Interactive node tree', 'Category coloring', 'Expand/collapse branches'] },
   audio:       { title: 'Audio Podcast', icon: '🎙️', desc: 'Two AI hosts discussing your document in an engaging conversation.', feats: ['Alex & Jordan hosts', 'Natural voice synthesis', 'Interactive transcript'] },
   slides:      { title: 'Slide Deck',   icon: '📊', desc: 'Presentation slides with key points and speaker notes.', feats: ['Title & content slides', 'Speaker notes included', 'Export ready format'] },
@@ -72,13 +71,14 @@ const TAB_META = {
   infographic: { title: 'Infographic',  icon: '📈', desc: 'Visual data summary with key metrics, timeline, and core takeaways.', feats: ['Metrics grid', 'Core sections cards', 'Timeline flow'] },
   video:       { title: '3D Video Studio', icon: '🎬', desc: 'Interactive 3D presentation studio with AI hosts and blackboard.', feats: ['Interactive 3D avatars', 'Blackboard sync', 'Live presentation recording'] },
   studyguide:  { title: 'Study Guide',  icon: '📕', desc: 'Flashcards and quiz questions to master your document content.', feats: ['3D Flip Flashcards', 'Practice Quiz', 'Mastery tracking'] },
+  hyperframes: { title: 'HyperFrames Render', icon: '⚡', desc: 'Render video timeline using HyperFrames HTML rendering engine.', feats: ['HTML Composition', 'Asynchronous Render Worker', 'Vercel Sandbox Renderer'] },
   chat:        { title: 'Chat Assistant', icon: '💬', desc: 'Ask questions and chat directly with Gemini AI about your document.', feats: ['Strict document grounding', 'Source citations', 'Download chat log'] },
 };
 
 export default function ProjectWorkspace({ project, onBack }) {
   const [sources, setSources]         = useState(project.sources || []);
   const [activeDocId, setActiveDocId] = useState(() => sources[0]?.id || null);
-  const [activeTab, setActiveTab]     = useState('chat');
+  const [activeTab, setActiveTab]     = useState('mindmap');
   const [artifacts, setArtifacts]     = useState({}); // { `${docId}_${tab}`: data }
   const [generating, setGenerating]   = useState({}); // { `${docId}_${tab}`: bool }
   const [genError, setGenError]       = useState({}); // { `${docId}_${tab}`: string }
