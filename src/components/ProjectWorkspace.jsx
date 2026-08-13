@@ -86,13 +86,19 @@ export default function ProjectWorkspace({ project, onBack }) {
   const [isDragOver, setIsDragOver]   = useState(false);
   const fileInputRef = useRef(null);
 
-  // Sync sources with project prop
+  // Sync sources with project prop & ensure activeDocId is always valid when sources exist
   useEffect(() => {
-    setSources(project.sources || []);
-    if (project.sources?.length && !activeDocId) {
-      setActiveDocId(project.sources[0].id);
+    const list = project.sources || [];
+    setSources(list);
+    if (list.length > 0) {
+      const exists = list.some(s => s.id === activeDocId);
+      if (!exists) {
+        setActiveDocId(list[0].id);
+      }
+    } else {
+      setActiveDocId(null);
     }
-  }, [project]);
+  }, [project, activeDocId]);
 
   // Load saved artifacts when active document changes
   useEffect(() => {
@@ -331,7 +337,8 @@ export default function ProjectWorkspace({ project, onBack }) {
   const activeDoc = sources.find(s => s.id === activeDocId);
 
   function renderStudio() {
-    if (!activeDocId || !activeDoc) {
+    // Case 1: No PDFs uploaded yet
+    if (sources.length === 0) {
       return (
         <div className="ws-no-source">
           <div className="ws-no-source-card glass-panel">
@@ -349,6 +356,38 @@ export default function ProjectWorkspace({ project, onBack }) {
             </button>
             <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
               Supports PDF documents up to 50MB
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // Case 2: PDFs uploaded, but no active doc selected
+    if (!activeDoc) {
+      return (
+        <div className="ws-no-source">
+          <div className="ws-no-source-card glass-panel">
+            <div className="ws-no-source-icon">📂</div>
+            <div className="ws-no-source-title">Select a Document Source</div>
+            <div className="ws-no-source-desc">
+              Choose a document below to view its insights and workspace tools.
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, width: '100%', marginTop: 8 }}>
+              {sources.map(src => (
+                <div
+                  key={src.id}
+                  className="ws-source-item"
+                  style={{ padding: '14px 18px', borderRadius: 'var(--radius-md)' }}
+                  onClick={() => setActiveDocId(src.id)}
+                >
+                  <span style={{ fontSize: 20 }}>📄</span>
+                  <div style={{ textAlign: 'left', flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 700, color: 'var(--text-primary)', fontSize: 14 }}>{src.title.replace('.pdf', '')}</div>
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>{src.pages} pages · {(src.words || 0).toLocaleString()} words</div>
+                  </div>
+                  <span style={{ color: 'var(--accent)', fontWeight: 700, fontSize: 13 }}>Select →</span>
+                </div>
+              ))}
             </div>
           </div>
         </div>
