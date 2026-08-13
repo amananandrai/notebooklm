@@ -93,6 +93,26 @@ export async function getDocument(docId) {
   }
 }
 
+export async function loadDocumentsForProject(projectId, sourceIds = []) {
+  try {
+    const res = await fetch(`${API_BASE}/projects/${projectId}/documents`);
+    if (!res.ok) throw new Error('API error');
+    const docs = await res.json();
+    if (docs && docs.length > 0) return docs;
+  } catch (err) {
+    console.warn('MongoDB loadDocumentsForProject failed, trying individual fetch:', err);
+  }
+
+  // Fallback: fetch individual document objects if sourceIds are available
+  if (sourceIds && sourceIds.length > 0) {
+    const docs = await Promise.all(sourceIds.map(id => getDocument(id)));
+    return docs.filter(Boolean);
+  }
+
+  return Object.values(memStore.documents).filter(d => d.projectId === projectId);
+}
+
+
 export async function deleteDocument(projectId, docId) {
   try {
     const res = await fetch(`${API_BASE}/documents/${projectId}/${docId}`, { method: 'DELETE' });

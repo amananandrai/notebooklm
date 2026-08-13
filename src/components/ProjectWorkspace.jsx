@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { parsePDFFile } from '../utils/pdfParser';
-import { saveDocument, getDocument, deleteDocument, getArtifact, saveArtifact, deleteArtifactsForDoc, loadProjects } from '../utils/storage';
+import { saveDocument, getDocument, deleteDocument, getArtifact, saveArtifact, deleteArtifactsForDoc, loadProjects, loadDocumentsForProject } from '../utils/storage';
 import MindMapViewer from './MindMapViewer';
 import AudioPlayer from './AudioPlayer';
 import SlideDeckViewer from './SlideDeckViewer';
@@ -86,19 +86,27 @@ export default function ProjectWorkspace({ project, onBack }) {
   const [isDragOver, setIsDragOver]   = useState(false);
   const fileInputRef = useRef(null);
 
-  // Sync sources with project prop & ensure activeDocId is always valid when sources exist
+  // Fetch document objects for project and ensure activeDocId is selected
   useEffect(() => {
-    const list = project.sources || [];
-    setSources(list);
-    if (list.length > 0) {
-      const exists = list.some(s => s.id === activeDocId);
-      if (!exists) {
-        setActiveDocId(list[0].id);
+    async function fetchProjectSources() {
+      const loadedDocs = await loadDocumentsForProject(project.id, project.sourceIds || []);
+      if (loadedDocs && loadedDocs.length > 0) {
+        setSources(loadedDocs);
+        if (!activeDocId || !loadedDocs.some(s => s.id === activeDocId)) {
+          setActiveDocId(loadedDocs[0].id);
+        }
+      } else if (project.sources?.length) {
+        setSources(project.sources);
+        if (!activeDocId || !project.sources.some(s => s.id === activeDocId)) {
+          setActiveDocId(project.sources[0].id);
+        }
+      } else {
+        setSources([]);
+        setActiveDocId(null);
       }
-    } else {
-      setActiveDocId(null);
     }
-  }, [project, activeDocId]);
+    fetchProjectSources();
+  }, [project.id]);
 
   // Load saved artifacts when active document changes
   useEffect(() => {

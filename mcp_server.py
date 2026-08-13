@@ -386,6 +386,14 @@ async def get_document(doc_id: str):
         raise HTTPException(status_code=404, detail="Document not found")
     return doc
 
+@app.get("/api/projects/{project_id}/documents")
+async def get_project_documents(project_id: str):
+    if db is None:
+        return []
+    cursor = db["documents"].find({"projectId": project_id}, {"_id": 0})
+    return await cursor.to_list(length=100)
+
+
 @app.delete("/api/documents/{project_id}/{doc_id}")
 async def delete_document(project_id: str, doc_id: str):
     if db is None:
