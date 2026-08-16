@@ -257,7 +257,7 @@ export default function MindMapViewer({ data }) {
                   fontWeight="700"
                   fontFamily="Inter, sans-serif"
                   letterSpacing="0.06em"
-                  textTransform="uppercase"
+                  style={{ textTransform: 'uppercase' }}
                   pointerEvents="none"
                 >
                   {p.node.category}

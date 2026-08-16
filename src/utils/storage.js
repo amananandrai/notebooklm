@@ -157,8 +157,48 @@ export async function getArtifact(projectId, docId, featureType) {
 export async function deleteArtifactsForDoc(projectId, docId) {
   // MongoDB backend deletes artifacts cascade-style when document or project is deleted.
   // Fallback cleanup:
-  const features = ['mindmap', 'audio', 'slides', 'studyguide', 'chat'];
+  const features = ['mindmap', 'audio', 'slides', 'slides_img', 'infographic', 'studyguide', 'chat', 'report', 'datatable', 'synthesis'];
   features.forEach(f => {
     delete memStore.artifacts[`${projectId}_${docId}_${f}`];
   });
+}
+
+// ── Notes ──
+export async function createNote(projectId, note) {
+  const payload = { ...note, projectId };
+  try {
+    const res = await fetch(`${API_BASE}/notes`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) throw new Error('API error');
+  } catch (err) {
+    console.warn('MongoDB createNote failed, using fallback:', err);
+    if (!memStore.notes) memStore.notes = [];
+    memStore.notes.unshift(payload);
+  }
+}
+
+export async function loadNotes(projectId) {
+  try {
+    const res = await fetch(`${API_BASE}/notes/${projectId}`);
+    if (!res.ok) throw new Error('API error');
+    return res.json();
+  } catch (err) {
+    console.warn('MongoDB loadNotes failed, using fallback:', err);
+    return (memStore.notes || []).filter(n => n.projectId === projectId);
+  }
+}
+
+export async function deleteNote(noteId) {
+  try {
+    const res = await fetch(`${API_BASE}/notes/${noteId}`, { method: 'DELETE' });
+    if (!res.ok) throw new Error('API error');
+  } catch (err) {
+    console.warn('MongoDB deleteNote failed, using fallback:', err);
+    if (memStore.notes) {
+      memStore.notes = memStore.notes.filter(n => n.id !== noteId);
+    }
+  }
 }
