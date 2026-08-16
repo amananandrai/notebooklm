@@ -551,7 +551,7 @@ export default function ProjectWorkspace({ project, onBack }) {
       }
 
       return (
-        <div className="video-studio-shell">
+        <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
           <div className="studio-content-header video-studio-shell-header">
             <div className="studio-content-title">
               🎬 3D Video Studio
@@ -567,27 +567,8 @@ export default function ProjectWorkspace({ project, onBack }) {
               </button>
             </div>
           </div>
-          <div className="video-studio-workspace">
-            <section className="video-studio-card video-live-card">
-              <div className="video-studio-card-header">
-                <div>
-                  <div className="video-studio-card-title">Live studio</div>
-                  <div className="video-studio-card-subtitle">Preview hosts, blackboard, captions, and narration</div>
-                </div>
-                <span className="video-studio-card-status"><span /> Ready</span>
-              </div>
-              <div className="video-studio-card-body"><VideoStudio slides={slidesData} script={audioData} /></div>
-            </section>
-            <section className="video-studio-card video-export-card">
-              <div className="video-studio-card-header">
-                <div>
-                  <div className="video-studio-card-title">Render &amp; export</div>
-                  <div className="video-studio-card-subtitle">Choose a format, review the frame, and download MP4</div>
-                </div>
-                <span className="video-studio-card-kicker">REMOTION</span>
-              </div>
-              <div className="video-studio-card-body"><VideoExportStudio slides={slidesData} script={audioData} /></div>
-            </section>
+          <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+            <VideoStudio slides={slidesData} script={audioData} />
           </div>
         </div>
       );
