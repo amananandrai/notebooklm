@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { SLIDE_THEMES } from '../utils/themes';
 
 // ── Image loader: fetch a URL and return a base64 data URI ──────────────────
 async function urlToBase64(url) {
@@ -16,11 +17,15 @@ async function urlToBase64(url) {
   }
 }
 
-// ── PDF download via jsPDF ─────────────────────────────────────────────────
-async function downloadPDF(slides, docTitle) {
+// ── PDF download via jsPDF with active theme colors ─────────────────────────
+async function downloadPDF(slides, docTitle, activeTheme) {
+  const theme = SLIDE_THEMES[activeTheme] || SLIDE_THEMES.light_slate;
   const { jsPDF } = await import('jspdf');
   const W = 297, H = 167.0625; // A4 landscape in mm (16:9)
   const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: [W, H] });
+
+  const [overlayR, overlayG, overlayB] = theme.pdfOverlay || [15, 23, 42];
+  const overlayOpacity = theme.pdfOverlayOpacity || 0.55;
 
   for (let i = 0; i < slides.length; i++) {
     const slide = slides[i];
@@ -38,9 +43,9 @@ async function downloadPDF(slides, docTitle) {
       pdf.rect(0, 0, W, H, 'F');
     }
 
-    // Semi-transparent dark overlay for text contrast on image
-    pdf.setGState(pdf.GState({ opacity: 0.55 }));
-    pdf.setFillColor(15, 23, 42);
+    // Themed overlay for text contrast on image
+    pdf.setGState(pdf.GState({ opacity: overlayOpacity }));
+    pdf.setFillColor(overlayR, overlayG, overlayB);
     pdf.rect(0, 0, W, H, 'F');
     pdf.setGState(pdf.GState({ opacity: 1.0 }));
 
@@ -90,8 +95,9 @@ async function downloadPDF(slides, docTitle) {
   pdf.save(`${docTitle || 'Slides'}_with_images.pdf`);
 }
 
-// ── PPTX download via pptxgenjs ────────────────────────────────────────────
-async function downloadPPTX(slides, docTitle) {
+// ── PPTX download via pptxgenjs with active theme colors ────────────────────
+async function downloadPPTX(slides, docTitle, activeTheme) {
+  const theme = SLIDE_THEMES[activeTheme] || SLIDE_THEMES.light_slate;
   const pptxgen = (await import('pptxgenjs')).default;
   const prs = new pptxgen();
   prs.layout = 'LAYOUT_WIDE'; // 16:9
@@ -99,68 +105,54 @@ async function downloadPPTX(slides, docTitle) {
   for (const slide of slides) {
     const sld = prs.addSlide();
 
-    // Background image
+    // Background image or solid color
     const imgSrc = slide.imageData || slide.imageUrl || '';
     if (imgSrc) {
-      let b64 = imgSrc.startsWith('data:') ? imgSrc : await urlToBase64(imgSrc);
-      if (b64) {
-        const base64Data = b64.split(',')[1];
-        const mimeMatch = b64.match(/data:([^;]+);/);
-        const ext = mimeMatch ? mimeMatch[1].split('/')[1] || 'jpeg' : 'jpeg';
-        try {
-          sld.addImage({ data: `image/${ext};base64,${base64Data}`, x: 0, y: 0, w: '100%', h: '100%' });
-        } catch {}
-      }
+      sld.background = { data: imgSrc.startsWith('data:') ? imgSrc : undefined, path: !imgSrc.startsWith('data:') ? imgSrc : undefined };
     } else {
-      sld.background = { fill: 'f8fafc' };
+      sld.background = { color: theme.pptxBg || '0F172A' };
     }
 
-    // Dark overlay rectangle
+    // Dark semi-transparent card shape over image for readable text
     sld.addShape(prs.ShapeType.rect, {
-      x: 0, y: 0, w: '100%', h: '100%',
-      fill: { color: '0f172a', transparency: 45 },
-      line: { color: '0f172a', transparency: 100 }
+      x: 0.6, y: 0.5, w: 12.13, h: 6.5,
+      fill: { color: '000000', transparency: 45 },
+      line: { color: theme.pptxAccent || '6D28D9', width: 1.5, transparency: 50 },
     });
 
-    // Slide number badge
-    sld.addText(`${slides.indexOf(slide) + 1} / ${slides.length}`, {
-      x: 8.5, y: 0.1, w: 1, h: 0.3,
-      fontSize: 8, color: 'cccccc', bold: false, align: 'right'
+    // Slide Number & Theme Badge
+    sld.addText(`Slide ${slide.id} · ${theme.name}`, {
+      x: 1.0, y: 0.8, w: 5.0, h: 0.4,
+      fontSize: 11, bold: true, color: theme.pptxAccent || 'C4B5FD', fontFace: 'Helvetica',
     });
-
-    const isTitle = slide.type === 'title';
-
-    // Subtitle label
-    if (slide.subtitle && isTitle) {
-      sld.addText((slide.subtitle || '').toUpperCase(), {
-        x: 0.4, y: isTitle ? 1.2 : 3.5, w: 8.5, h: 0.4,
-        fontSize: 9, color: 'c4b5fd', bold: true, charSpacing: 3
-      });
-    }
 
     // Title
-    sld.addText(slide.title || '', {
-      x: 0.4,
-      y: isTitle ? 1.8 : 1.2,
-      w: 8.5, h: isTitle ? 1.4 : 1.0,
-      fontSize: isTitle ? 36 : 28,
-      color: 'ffffff', bold: true, breakLine: false,
-      shadow: { type: 'outer', color: '000000', blur: 8, offset: 4, angle: 45, opacity: 0.6 }
+    sld.addText(slide.title, {
+      x: 1.0, y: 1.2, w: 11.3, h: 1.0,
+      fontSize: slide.type === 'title' ? 32 : 24,
+      bold: true, color: 'FFFFFF', fontFace: 'Helvetica',
     });
 
-    // Bullets
-    if (slide.bullets?.length > 0) {
-      const bulletItems = slide.bullets.map(b => ({
-        text: b,
-        options: { bullet: { code: '2022' }, color: 'ffffff', fontSize: 13, paraSpaceAfter: 6 }
-      }));
-      sld.addText(bulletItems, {
-        x: 0.4, y: isTitle ? 3.4 : 2.5, w: 8.6, h: 2.5,
-        fontSize: 13, color: 'ffffff', breakLine: true
+    // Subtitle
+    if (slide.subtitle) {
+      sld.addText(slide.subtitle, {
+        x: 1.0, y: 2.1, w: 11.3, h: 0.5,
+        fontSize: 13, italic: true, color: 'CBD5E1', fontFace: 'Helvetica',
       });
     }
 
-    // Speaker notes
+    // Bullets
+    if (slide.bullets && slide.bullets.length > 0) {
+      const bulletItems = slide.bullets.map(b => ({
+        text: b,
+        options: { fontSize: 13, color: 'F1F5F9', bullet: true, spaceAfter: 10, fontFace: 'Helvetica' },
+      }));
+      sld.addText(bulletItems, {
+        x: 1.0, y: slide.subtitle ? 2.7 : 2.3, w: 11.3, h: 3.5,
+      });
+    }
+
+    // Speaker notes in PowerPoint notes field
     if (slide.speakerNotes) {
       sld.addNotes(slide.speakerNotes);
     }
@@ -169,312 +161,261 @@ async function downloadPPTX(slides, docTitle) {
   await prs.writeFile({ fileName: `${docTitle || 'Slides'}_with_images.pptx` });
 }
 
-// ── Main Component ─────────────────────────────────────────────────────────
-export default function SlidesWithImagesViewer({ slides, docTitle }) {
+export default function SlidesWithImagesViewer({ slides, docTitle, activeTheme = 'light_slate', onThemeChange }) {
   const [current, setCurrent] = useState(0);
-  const [visible, setVisible] = useState(true);
-  const [animDir, setAnimDir] = useState('');
-  const [exporting, setExporting] = useState(null); // 'pdf' | 'pptx' | null
-  const [exportError, setExportError] = useState('');
+  const [themeId, setThemeId] = useState(activeTheme);
+  const [isExportingPDF, setIsExportingPDF] = useState(false);
+  const [isExportingPPTX, setIsExportingPPTX] = useState(false);
+
   const list = Array.isArray(slides) ? slides : [];
   const slide = list[current];
+  const currentTheme = SLIDE_THEMES[themeId] || SLIDE_THEMES.light_slate;
 
-  useEffect(() => {
-    const handleKey = (e) => {
-      if (e.key === 'ArrowRight' || e.key === 'ArrowDown') navigate(1);
-      if (e.key === 'ArrowLeft'  || e.key === 'ArrowUp')   navigate(-1);
-    };
-    window.addEventListener('keydown', handleKey);
-    return () => window.removeEventListener('keydown', handleKey);
-  }, [current, list.length]);
+  const handleSelectTheme = (tId) => {
+    setThemeId(tId);
+    if (onThemeChange) onThemeChange(tId);
+  };
 
-  function navigate(dir) {
-    const next = current + dir;
-    if (next < 0 || next >= list.length) return;
-    setVisible(false);
-    setAnimDir(dir > 0 ? 'left' : 'right');
-    setTimeout(() => {
-      setCurrent(next);
-      setVisible(true);
-    }, 180);
-  }
+  if (!slide) return <div style={{ padding: 40, color: 'var(--text-muted)' }}>No visual slides available.</div>;
 
-  async function handleExport(type) {
-    if (exporting) return;
-    setExporting(type);
-    setExportError('');
+  const handleExportPDF = async () => {
+    setIsExportingPDF(true);
     try {
-      const title = docTitle || 'Presentation';
-      if (type === 'pdf')  await downloadPDF(list, title);
-      if (type === 'pptx') await downloadPPTX(list, title);
-    } catch (e) {
-      console.error(e);
-      setExportError(`Export failed: ${e.message}`);
+      await downloadPDF(list, docTitle, themeId);
     } finally {
-      setExporting(null);
+      setIsExportingPDF(false);
     }
-  }
+  };
 
-  if (!slide) return (
-    <div style={{ padding: 40, color: 'var(--text-muted)', textAlign: 'center' }}>No slides available.</div>
-  );
-
-  const hasImage = !!(slide.imageData || slide.imageUrl);
-  const imgSrc   = slide.imageData || slide.imageUrl || '';
-  const isTitle  = slide.type === 'title';
+  const handleExportPPTX = async () => {
+    setIsExportingPPTX(true);
+    try {
+      await downloadPPTX(list, docTitle, themeId);
+    } finally {
+      setIsExportingPPTX(false);
+    }
+  };
 
   return (
-    <div style={{ display: 'flex', height: '100%', overflow: 'hidden', background: 'var(--bg-base)' }}>
-      {/* ── Thumbnail Sidebar ── */}
-      <div style={{
-        width: 220, minWidth: 220,
-        background: 'rgba(255, 255, 255, 0.85)',
-        backdropFilter: 'blur(12px)',
-        WebkitBackdropFilter: 'blur(12px)',
-        borderRight: '1px solid var(--border)',
-        overflowY: 'auto', padding: '14px 10px',
-        display: 'flex', flexDirection: 'column', gap: 10,
-      }}>
-        {list.map((s, i) => {
-          const thumbSrc = s.imageData || s.imageUrl || '';
-          const isActive = i === current;
-          return (
-            <button
-              key={i}
-              onClick={() => { setVisible(true); setCurrent(i); }}
-              style={{
-                border: isActive ? '2px solid var(--accent)' : '1px solid var(--border)',
-                borderRadius: 'var(--radius-md)',
-                overflow: 'hidden',
-                padding: 0,
-                cursor: 'pointer',
-                background: isActive ? '#f3e8ff' : '#ffffff',
-                boxShadow: isActive ? '0 4px 14px rgba(109, 40, 217, 0.15)' : 'var(--shadow-sm)',
-                transition: 'var(--transition)',
-                flexShrink: 0,
-                textAlign: 'left',
-              }}
-            >
-              <div style={{
-                width: '100%', aspectRatio: '16/9',
-                background: thumbSrc
-                  ? `url(${thumbSrc}) center/cover no-repeat`
-                  : 'linear-gradient(135deg, #f3e8ff, #e2e8f0)',
-                position: 'relative',
-              }}>
-                <div style={{
-                  position: 'absolute', top: 4, left: 6,
-                  fontSize: 10, fontWeight: 700,
-                  color: thumbSrc ? '#ffffff' : 'var(--accent)',
-                  background: thumbSrc ? 'rgba(15,23,42,0.6)' : '#ffffff',
-                  padding: '1px 6px', borderRadius: 4,
-                  fontFamily: 'var(--font-heading)',
-                }}>
-                  {i + 1}
-                </div>
-              </div>
-              <div style={{ padding: '6px 8px' }}>
-                <div style={{
-                  fontSize: 11, fontWeight: 700,
-                  color: isActive ? 'var(--accent)' : 'var(--text-primary)',
-                  whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-                  fontFamily: 'var(--font-heading)',
-                }}>
-                  {s.title}
-                </div>
-              </div>
-            </button>
-          );
-        })}
-      </div>
+    <div className="slides-layout" style={{ background: currentTheme.bg }}>
+      {/* Left thumbnail sidebar */}
+      <div
+        className="slides-sidebar"
+        style={{
+          background: currentTheme.cardBg,
+          borderColor: currentTheme.border,
+        }}
+      >
+        <div style={{ padding: '12px 14px', borderBottom: `1px solid ${currentTheme.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: currentTheme.textMuted }}>
+            {list.length} Slides
+          </span>
 
-      {/* ── Main Presentation Area ── */}
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-
-        {/* ── Export Toolbar ── */}
-        <div style={{
-          display: 'flex', alignItems: 'center', gap: 10, justifyContent: 'flex-end',
-          padding: '10px 24px',
-          background: 'rgba(255, 255, 255, 0.85)',
-          backdropFilter: 'blur(12px)',
-          WebkitBackdropFilter: 'blur(12px)',
-          borderBottom: '1px solid var(--border)',
-        }}>
-          {exportError && (
-            <span style={{ fontSize: 12, color: 'var(--red)', marginRight: 8 }}>⚠ {exportError}</span>
-          )}
-          <button
-            id="export-pdf-btn"
-            onClick={() => handleExport('pdf')}
-            disabled={!!exporting}
+          {/* Theme Dropdown */}
+          <select
+            value={themeId}
+            onChange={(e) => handleSelectTheme(e.target.value)}
             style={{
-              display: 'flex', alignItems: 'center', gap: 6,
-              padding: '7px 16px', borderRadius: 'var(--radius-sm)', fontSize: '0.82rem',
-              fontFamily: 'var(--font-heading)', fontWeight: 600,
-              background: '#ffffff',
-              border: '1px solid rgba(219, 39, 119, 0.3)',
-              color: 'var(--pink)',
-              cursor: exporting ? 'not-allowed' : 'pointer',
-              transition: 'var(--transition)',
-              boxShadow: 'var(--shadow-sm)',
+              padding: '4px 8px',
+              fontSize: 11,
+              fontWeight: 600,
+              borderRadius: 6,
+              border: `1px solid ${currentTheme.border}`,
+              background: currentTheme.bg,
+              color: currentTheme.textPrimary,
+              cursor: 'pointer',
+              outline: 'none',
             }}
           >
-            {exporting === 'pdf' ? '⏳' : '📄'} {exporting === 'pdf' ? 'Generating PDF...' : 'Download PDF'}
-          </button>
-          <button
-            id="export-pptx-btn"
-            onClick={() => handleExport('pptx')}
-            disabled={!!exporting}
-            style={{
-              display: 'flex', alignItems: 'center', gap: 6,
-              padding: '7px 16px', borderRadius: 'var(--radius-sm)', fontSize: '0.82rem',
-              fontFamily: 'var(--font-heading)', fontWeight: 600,
-              background: 'var(--accent)',
-              border: 'none',
-              color: '#ffffff',
-              cursor: exporting ? 'not-allowed' : 'pointer',
-              transition: 'var(--transition)',
-              boxShadow: '0 4px 14px rgba(109, 40, 217, 0.2)',
-            }}
-          >
-            {exporting === 'pptx' ? '⏳' : '📊'} {exporting === 'pptx' ? 'Generating PPTX...' : 'Download PPTX'}
-          </button>
+            {Object.values(SLIDE_THEMES).map(t => (
+              <option key={t.id} value={t.id}>
+                {t.icon} {t.name}
+              </option>
+            ))}
+          </select>
         </div>
 
-        {/* ── Slide Canvas Presentation Card ── */}
-        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px 36px', overflow: 'hidden' }}>
-          <div style={{
-            width: '100%', maxWidth: 860, aspectRatio: '16/9',
-            borderRadius: 'var(--radius-xl)', overflow: 'hidden', position: 'relative',
-            boxShadow: 'var(--shadow-lg)',
-            border: '1px solid var(--border-med)',
-            background: hasImage ? `url(${imgSrc}) center/cover no-repeat` : 'linear-gradient(135deg, #ffffff 0%, #f3e8ff 100%)',
-            opacity: visible ? 1 : 0,
-            transform: visible ? 'translateX(0) scale(1)' : `translateX(${animDir === 'left' ? '-24px' : '24px'}) scale(0.98)`,
-            transition: 'opacity 0.18s ease, transform 0.18s ease',
-          }}>
-            {/* Overlay gradient for maximum readability */}
-            <div style={{
-              position: 'absolute', inset: 0,
-              background: hasImage
-                ? 'linear-gradient(to bottom, rgba(15,23,42,0.2) 0%, rgba(15,23,42,0.65) 50%, rgba(15,23,42,0.9) 100%)'
-                : 'transparent',
-            }} />
+        <div style={{ flex: 1, overflowY: 'auto', padding: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {list.map((s, i) => {
+            const imgSrc = s.imageData || s.imageUrl;
+            return (
+              <div
+                key={i}
+                className={`slide-thumb${i === current ? ' active' : ''}`}
+                style={{
+                  borderColor: i === current ? currentTheme.accent : currentTheme.border,
+                  background: i === current ? currentTheme.accentBadgeBg : 'transparent',
+                }}
+                onClick={() => setCurrent(i)}
+              >
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  {imgSrc ? (
+                    <img
+                      src={imgSrc}
+                      alt={`Slide ${i + 1}`}
+                      style={{ width: 36, height: 22, objectFit: 'cover', borderRadius: 3, flexShrink: 0 }}
+                    />
+                  ) : (
+                    <div style={{ width: 36, height: 22, background: currentTheme.bg, borderRadius: 3, display: 'grid', placeItems: 'center', fontSize: 10 }}>
+                      🖼️
+                    </div>
+                  )}
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <div className="slide-thumb-num" style={{ color: currentTheme.textMuted }}>Slide {i + 1}</div>
+                    <div className="slide-thumb-title" style={{ color: currentTheme.textPrimary }}>{s.title}</div>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
 
-            {/* Slide counter badge */}
-            <div style={{
-              position: 'absolute', top: 16, right: 20,
-              fontSize: 11, fontWeight: 700,
-              color: hasImage ? '#ffffff' : 'var(--accent)',
-              fontFamily: 'var(--font-heading)',
-              background: hasImage ? 'rgba(15,23,42,0.6)' : '#ffffff',
-              borderRadius: 20, padding: '3px 12px',
-              border: hasImage ? '1px solid rgba(255,255,255,0.2)' : '1px solid var(--border-hi)',
-              boxShadow: 'var(--shadow-sm)',
-            }}>
-              {current + 1} / {list.length}
+      {/* Main Slide Canvas */}
+      <div className="slide-main" style={{ background: currentTheme.bg }}>
+        {/* Top Export Toolbar */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', maxWidth: 840, marginBottom: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 13, fontWeight: 700, color: currentTheme.textPrimary }}>
+              {currentTheme.icon} {currentTheme.name}
+            </span>
+            <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 99, background: currentTheme.accentBadgeBg, color: currentTheme.accent, border: `1px solid ${currentTheme.accentBadgeBorder}`, fontWeight: 600 }}>
+              {currentTheme.badge}
+            </span>
+          </div>
+
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              onClick={handleExportPDF}
+              disabled={isExportingPDF}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 6,
+                padding: '6px 12px', fontSize: 12, fontWeight: 600,
+                background: currentTheme.cardBg, color: currentTheme.textPrimary,
+                border: `1px solid ${currentTheme.border}`, borderRadius: 'var(--radius-md)',
+                cursor: 'pointer', transition: 'all 0.2s',
+              }}
+            >
+              <span>📄</span> {isExportingPDF ? 'Generating PDF...' : 'Download PDF'}
+            </button>
+            <button
+              onClick={handleExportPPTX}
+              disabled={isExportingPPTX}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 6,
+                padding: '6px 12px', fontSize: 12, fontWeight: 600,
+                background: `linear-gradient(135deg, ${currentTheme.accent}, ${currentTheme.accentLit})`,
+                color: '#ffffff',
+                border: 'none', borderRadius: 'var(--radius-md)',
+                cursor: 'pointer', transition: 'all 0.2s',
+                boxShadow: `0 2px 8px ${currentTheme.accent}30`,
+              }}
+            >
+              <span>📊</span> {isExportingPPTX ? 'Exporting PPTX...' : 'Export PPTX'}
+            </button>
+          </div>
+        </div>
+
+        {/* 16:9 Aspect Ratio Slide Canvas */}
+        <div
+          style={{
+            width: '100%',
+            maxWidth: 840,
+            aspectRatio: '16 / 9',
+            position: 'relative',
+            borderRadius: 'var(--radius-lg)',
+            overflow: 'hidden',
+            boxShadow: `0 12px 40px ${currentTheme.accent}20`,
+            border: `1px solid ${currentTheme.border}`,
+            background: currentTheme.canvasBg,
+          }}
+        >
+          {/* Background Illustration */}
+          {(slide.imageData || slide.imageUrl) && (
+            <img
+              src={slide.imageData || slide.imageUrl}
+              alt={slide.title}
+              style={{
+                position: 'absolute', inset: 0, width: '100%', height: '100%',
+                objectFit: 'cover', zIndex: 0,
+              }}
+            />
+          )}
+
+          {/* Themed Contrast Gradient Overlay */}
+          <div
+            style={{
+              position: 'absolute', inset: 0,
+              background: currentTheme.overlayGradient,
+              zIndex: 1,
+            }}
+          />
+
+          {/* Slide Text Content */}
+          <div
+            style={{
+              position: 'relative', zIndex: 2,
+              height: '100%', boxSizing: 'border-box',
+              padding: '36px 42px',
+              display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
+              color: '#ffffff',
+            }}
+          >
+            {/* Top Bar: Subtitle and Counter */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              {slide.subtitle ? (
+                <span style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: currentTheme.accentLit || '#c4b5fd' }}>
+                  {slide.subtitle}
+                </span>
+              ) : <div />}
+              <span style={{ fontSize: 11, fontWeight: 600, opacity: 0.75, background: 'rgba(0,0,0,0.3)', padding: '2px 8px', borderRadius: 99 }}>
+                {current + 1} / {list.length}
+              </span>
             </div>
 
-            {/* Content Container */}
-            <div style={{
-              position: 'absolute', inset: 0,
-              display: 'flex', flexDirection: 'column',
-              justifyContent: isTitle ? 'center' : 'flex-end',
-              padding: isTitle ? '40px 56px' : '28px 48px 36px',
-            }}>
-              {slide.subtitle && isTitle && (
-                <div style={{
-                  fontSize: 12, fontFamily: 'var(--font-heading)', fontWeight: 700,
-                  color: hasImage ? '#c4b5fd' : 'var(--accent)',
-                  letterSpacing: 3, textTransform: 'uppercase', marginBottom: 12,
-                }}>
-                  {slide.subtitle}
-                </div>
-              )}
-              <h2 style={{
-                fontSize: isTitle ? '2.3rem' : '1.75rem', fontFamily: 'var(--font-heading)', fontWeight: 800,
-                color: hasImage ? '#ffffff' : 'var(--text-primary)', lineHeight: 1.25, marginBottom: isTitle ? 18 : 14,
-                textShadow: hasImage ? '0 2px 12px rgba(0,0,0,0.8)' : 'none',
-              }}>
+            {/* Middle: Title & Bullets */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <h2 style={{ margin: 0, fontSize: slide.type === 'title' ? 32 : 24, fontWeight: 800, lineHeight: 1.25, letterSpacing: '-0.3px', textShadow: '0 2px 10px rgba(0,0,0,0.5)' }}>
                 {slide.title}
               </h2>
 
-              {slide.bullets?.length > 0 && (
-                <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {slide.bullets && slide.bullets.length > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 4 }}>
                   {slide.bullets.map((b, bi) => (
-                    <li key={bi} style={{
-                      display: 'flex', alignItems: 'flex-start', gap: 10,
-                      fontSize: '0.92rem',
-                      color: hasImage ? 'rgba(255,255,255,0.95)' : 'var(--text-primary)',
-                      lineHeight: 1.55,
-                    }}>
-                      <span style={{
-                        width: 6, height: 6, borderRadius: '50%',
-                        background: hasImage ? '#c4b5fd' : 'var(--accent)',
-                        flexShrink: 0, marginTop: 7,
-                      }} />
-                      {b}
-                    </li>
+                    <div key={bi} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, fontSize: 14, lineHeight: 1.5, opacity: 0.95, textShadow: '0 1px 4px rgba(0,0,0,0.4)' }}>
+                      <span style={{ color: currentTheme.accentLit || '#c4b5fd', fontWeight: 700, marginTop: -1 }}>•</span>
+                      <span>{b}</span>
+                    </div>
                   ))}
-                </ul>
-              )}
-
-              {slide.speakerNotes && (
-                <div style={{
-                  marginTop: 16, padding: '8px 14px',
-                  background: hasImage ? 'rgba(15,23,42,0.65)' : '#ffffff',
-                  backdropFilter: 'blur(8px)',
-                  borderRadius: 'var(--radius-sm)',
-                  borderLeft: `3px solid ${hasImage ? '#c4b5fd' : 'var(--accent)'}`,
-                  fontSize: '0.75rem',
-                  color: hasImage ? 'rgba(255,255,255,0.75)' : 'var(--text-secondary)',
-                  lineHeight: 1.5,
-                  boxShadow: hasImage ? 'none' : 'var(--shadow-sm)',
-                }}>
-                  <strong style={{ color: hasImage ? '#c4b5fd' : 'var(--accent)' }}>Notes: </strong>
-                  {slide.speakerNotes}
                 </div>
               )}
             </div>
+
+            {/* Bottom: Speaker Notes */}
+            {slide.speakerNotes && (
+              <div style={{ fontSize: 11, fontStyle: 'italic', opacity: 0.75, borderTop: '1px solid rgba(255,255,255,0.15)', paddingTop: 8, textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
+                💡 {slide.speakerNotes}
+              </div>
+            )}
           </div>
         </div>
 
-        {/* ── Bottom Navigation Controls ── */}
-        <div style={{
-          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 18, padding: '12px 24px',
-          background: '#ffffff', borderTop: '1px solid var(--border)',
-        }}>
+        {/* Bottom Navigation */}
+        <div className="slides-nav" style={{ marginTop: 16 }}>
           <button
-            onClick={() => navigate(-1)}
+            className="slides-nav-btn"
+            onClick={() => setCurrent(c => Math.max(0, c - 1))}
             disabled={current === 0}
-            className="btn-secondary"
-            style={{ opacity: current === 0 ? 0.5 : 1, cursor: current === 0 ? 'not-allowed' : 'pointer' }}
           >
             ← Prev
           </button>
-
-          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-            {list.map((_, i) => (
-              <div
-                key={i}
-                onClick={() => setCurrent(i)}
-                style={{
-                  width: i === current ? 24 : 8,
-                  height: 8,
-                  borderRadius: 4,
-                  background: i === current ? 'var(--accent)' : 'var(--border-med)',
-                  cursor: 'pointer',
-                  transition: 'var(--transition)',
-                }}
-              />
-            ))}
-          </div>
-
+          <span className="slides-counter" style={{ color: currentTheme.textMuted }}>
+            {current + 1} / {list.length}
+          </span>
           <button
-            onClick={() => navigate(1)}
+            className="slides-nav-btn"
+            onClick={() => setCurrent(c => Math.min(list.length - 1, c + 1))}
             disabled={current === list.length - 1}
-            className="btn-secondary"
-            style={{ opacity: current === list.length - 1 ? 0.5 : 1, cursor: current === list.length - 1 ? 'not-allowed' : 'pointer' }}
           >
             Next →
           </button>

@@ -11,6 +11,10 @@ import ChatAssistant from './ChatAssistant';
 import VideoStudio from './VideoStudio';
 import VideoExportStudio from '../video/VideoExportStudio';
 import HyperFramesStudio from '../video/HyperFramesStudio';
+import ReportViewer from './ReportViewer';
+import DataTableViewer from './DataTableViewer';
+import NotesPanel from './NotesPanel';
+import { SLIDE_THEMES, SLIDE_COUNTS, AUDIO_LENGTHS, AUDIO_TONES } from '../utils/themes';
 
 const MCP_ENDPOINT = window.location.origin.includes('5173') || window.location.origin.includes('localhost')
   ? 'http://127.0.0.1:8080/mcp'
@@ -57,8 +61,11 @@ const TABS = [
   { id: 'slides',      label: 'Slides',       icon: '📊' },
   { id: 'slides_img',  label: 'Slides + Images', icon: '🖼️' },
   { id: 'infographic', label: 'Infographic',  icon: '📈' },
+  { id: 'report',      label: 'Report',       icon: '📄' },
+  { id: 'datatable',   label: 'Data Table',   icon: '📋' },
   { id: 'video',       label: 'Video Studio', icon: '🎬' },
   { id: 'studyguide',  label: 'Study Guide',  icon: '📕' },
+  { id: 'synthesis',   label: 'Synthesis',    icon: '🔗' },
   { id: 'hyperframes', label: 'HF HyperFrames', icon: '⚡' },
   { id: 'chat',        label: 'Chat',         icon: '💬' },
 ];
@@ -69,8 +76,11 @@ const TAB_META = {
   slides:      { title: 'Slide Deck',   icon: '📊', desc: 'Presentation slides with key points and speaker notes.', feats: ['Title & content slides', 'Speaker notes included', 'Export ready format'] },
   slides_img:  { title: 'Slides + Images', icon: '🖼️', desc: 'Presentation slides enhanced with AI-generated visual illustrations.', feats: ['Flux Realism generated visuals', 'High-res image backgrounds', 'PDF & PPTX exports'] },
   infographic: { title: 'Infographic',  icon: '📈', desc: 'Visual data summary with key metrics, timeline, and core takeaways.', feats: ['Metrics grid', 'Core sections cards', 'Timeline flow'] },
+  report:      { title: 'Executive Report', icon: '📄', desc: 'Comprehensive executive report with key findings, risks, and recommendations.', feats: ['Executive summary', 'Risk analysis matrix', 'Strategic recommendations'] },
+  datatable:   { title: 'Data Table',   icon: '📋', desc: 'Structured tabular data extracted from your document for easy comparison.', feats: ['Sortable columns', 'Search & filter', 'CSV export'] },
   video:       { title: '3D Video Studio', icon: '🎬', desc: 'Interactive 3D presentation studio with AI hosts and blackboard.', feats: ['Interactive 3D avatars', 'Blackboard sync', 'Live presentation recording'] },
   studyguide:  { title: 'Study Guide',  icon: '📕', desc: 'Flashcards and quiz questions to master your document content.', feats: ['3D Flip Flashcards', 'Practice Quiz', 'Mastery tracking'] },
+  synthesis:   { title: 'Cross-Doc Synthesis', icon: '🔗', desc: 'Analyze all uploaded sources together to find shared themes, contradictions, and unified insights.', feats: ['Common theme detection', 'Contradiction analysis', 'Unified recommendations'] },
   hyperframes: { title: 'HyperFrames Render', icon: '⚡', desc: 'Render video timeline using HyperFrames HTML rendering engine.', feats: ['HTML Composition', 'Asynchronous Render Worker', 'Vercel Sandbox Renderer'] },
   chat:        { title: 'Chat Assistant', icon: '💬', desc: 'Ask questions and chat directly with Gemini AI about your document.', feats: ['Strict document grounding', 'Source citations', 'Download chat log'] },
 };
@@ -79,6 +89,11 @@ export default function ProjectWorkspace({ project, onBack }) {
   const [sources, setSources]         = useState(project.sources || []);
   const [activeDocId, setActiveDocId] = useState(() => sources[0]?.id || null);
   const [activeTab, setActiveTab]     = useState('mindmap');
+  const [sidebarTab, setSidebarTab]   = useState('sources'); // 'sources' | 'notes'
+  const [slideCount, setSlideCount]   = useState(7);
+  const [slideTheme, setSlideTheme]   = useState('light_slate');
+  const [audioLength, setAudioLength] = useState('standard');
+  const [audioTone, setAudioTone]     = useState('casual');
   const [artifacts, setArtifacts]     = useState({}); // { `${docId}_${tab}`: data }
   const [generating, setGenerating]   = useState({}); // { `${docId}_${tab}`: bool }
   const [genError, setGenError]       = useState({}); // { `${docId}_${tab}`: string }
@@ -218,14 +233,39 @@ export default function ProjectWorkspace({ project, onBack }) {
       slides_img:  'generate_slides_with_images',
       infographic: 'generate_infographic',
       studyguide:  'generate_study_guide',
+      report:      'generate_report',
+      datatable:   'generate_data_table',
     };
 
     try {
-      const doc = await getDocument(activeDocId);
-      if (!doc) throw new Error('Document not found in storage.');
-      const result = await callMCP(toolMap[tab], { documentTitle: doc.title, rawText: doc.rawText });
-      await saveArtifact(project.id, activeDocId, tab, result);
-      setArtifacts(prev => ({ ...prev, [key]: result }));
+      if (tab === 'synthesis') {
+        // Multi-source synthesis: gather all document texts
+        const docs = await Promise.all(
+          sources.map(async s => {
+            const d = await getDocument(s.id);
+            return d ? { title: d.title, text: (d.rawText || '').slice(0, 5000) } : null;
+          })
+        );
+        const validDocs = docs.filter(Boolean);
+        if (validDocs.length < 2) throw new Error('Need at least 2 uploaded sources for cross-document synthesis.');
+        const result = await callMCP('generate_project_synthesis', { documents: validDocs });
+        await saveArtifact(project.id, activeDocId, tab, result);
+        setArtifacts(prev => ({ ...prev, [key]: result }));
+      } else {
+        const doc = await getDocument(activeDocId);
+        if (!doc) throw new Error('Document not found in storage.');
+        const args = {
+          documentTitle: doc.title,
+          rawText: doc.rawText,
+          slideCount,
+          theme: slideTheme,
+          audioLength,
+          audioTone,
+        };
+        const result = await callMCP(toolMap[tab], args);
+        await saveArtifact(project.id, activeDocId, tab, result);
+        setArtifacts(prev => ({ ...prev, [key]: result }));
+      }
     } catch (err) {
       setGenError(prev => ({ ...prev, [key]: err.message }));
     } finally {
@@ -321,6 +361,34 @@ export default function ProjectWorkspace({ project, onBack }) {
           (data.flashcards || []).map(f => `**Q:** ${f.question}\n**A:** ${f.answer}\n*Category:* ${f.category}\n`).join('\n---\n\n') +
           `\n## 🧩 Quiz Questions\n\n` +
           (data.quiz || []).map((q, idx) => `### Q${idx + 1}: ${q.question}\n` + (q.options || []).map((o, oi) => `  ${String.fromCharCode(65 + oi)}) ${o}`).join('\n') + `\n*Correct Answer:* Option ${String.fromCharCode(65 + q.correctIndex)}\n*Explanation:* ${q.explanation}\n`).join('\n---\n\n');
+      }
+
+      else if (tab === 'report') {
+        fileName = `${activeDoc.title.replace('.pdf', '')}_Report.md`;
+        content = `# ${data.reportTitle || 'Executive Report'}\n\n**Type:** ${data.reportType || 'Detailed'}\n\n## Executive Summary\n${data.executiveSummary || ''}\n\n` +
+          `## Key Findings\n` + (data.keyFindings || []).map((f, i) => `${i + 1}. ${f}`).join('\n') + '\n\n' +
+          `## Detailed Sections\n` + (data.sections || []).map(s => `### ${s.title}\n${s.content}\n`).join('\n') + '\n' +
+          `## Strategic Recommendations\n` + (data.strategicRecommendations || []).map(r => `- ✓ ${r}`).join('\n') + '\n\n' +
+          `## Risk Analysis\n` + (data.riskAnalysis || []).map(r => `- **${r.risk}** (${r.severity}): ${r.mitigation}`).join('\n') + '\n\n' +
+          `## Conclusion\n${data.conclusion || ''}`;
+      }
+
+      else if (tab === 'datatable') {
+        fileName = `${activeDoc.title.replace('.pdf', '')}_DataTable.csv`;
+        const cols = data.columns || [];
+        content = cols.join(',') + '\n' +
+          (data.rows || []).map(row => cols.map(c => `"${String(row[c] || '').replace(/"/g, '""')}"`).join(',')).join('\n');
+      }
+
+      else if (tab === 'synthesis') {
+        fileName = `${activeDoc.title.replace('.pdf', '')}_Synthesis.md`;
+        content = `# Cross-Document Synthesis\n\n## ${data.synthesisTitle || 'Multi-Source Analysis'}\n\n` +
+          `**Documents Analyzed:** ${(data.documentsAnalyzed || []).join(', ')}\n\n` +
+          `## Common Themes\n` + (data.commonThemes || []).map(t => `### ${t.theme}\n${t.evidence}\n`).join('\n') + '\n' +
+          `## Contradictions\n` + (data.contradictions || []).map(c => `- **${c.topic}**: Doc A says "${c.docA}" vs Doc B says "${c.docB}"`).join('\n') + '\n\n' +
+          `## Unique Insights\n` + (data.uniqueInsights || []).map(u => `- **${u.document}**: ${u.insight}`).join('\n') + '\n\n' +
+          `## Overall Synthesis\n${data.overallSynthesis || ''}\n\n` +
+          `## Recommendations\n` + (data.recommendations || []).map(r => `- ${r}`).join('\n');
       }
     }
 
@@ -511,7 +579,7 @@ export default function ProjectWorkspace({ project, onBack }) {
 
     const meta = TAB_META[activeTab];
 
-    // Empty state
+    // Empty state with dynamic options
     if (!artifact && !isGen) {
       return (
         <div className="studio-empty">
@@ -520,16 +588,115 @@ export default function ProjectWorkspace({ project, onBack }) {
           <div className="studio-empty-desc">
             {meta.desc}
           </div>
+
+          {/* Dynamic Slide Deck Options */}
+          {(activeTab === 'slides' || activeTab === 'slides_img') && (
+            <div className="ws-gen-options-panel">
+              {/* Slide Count Selector */}
+              <div className="ws-gen-opt-group">
+                <div className="ws-gen-opt-label">📊 Number of Slides:</div>
+                <div className="ws-gen-pill-row">
+                  {SLIDE_COUNTS.map(sc => (
+                    <button
+                      key={sc.id}
+                      type="button"
+                      className={`ws-gen-pill${slideCount === sc.id ? ' active' : ''}`}
+                      onClick={() => setSlideCount(sc.id)}
+                    >
+                      <span className="ws-gen-pill-title">{sc.label}</span>
+                      <span className="ws-gen-pill-badge">{sc.badge}</span>
+                    </button>
+                  ))}
+                  <div className="ws-gen-custom-count">
+                    <span>Custom:</span>
+                    <input
+                      type="number"
+                      min={3}
+                      max={16}
+                      value={slideCount}
+                      onChange={e => setSlideCount(Math.max(3, Math.min(16, Number(e.target.value) || 7)))}
+                      className="ws-gen-num-input"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Visual Theme Selector */}
+              <div className="ws-gen-opt-group">
+                <div className="ws-gen-opt-label">🎨 Visual Design Theme:</div>
+                <div className="ws-gen-pill-row">
+                  {Object.values(SLIDE_THEMES).map(t => (
+                    <button
+                      key={t.id}
+                      type="button"
+                      className={`ws-gen-theme-pill${slideTheme === t.id ? ' active' : ''}`}
+                      onClick={() => setSlideTheme(t.id)}
+                      style={{
+                        '--theme-accent': t.accent,
+                        '--theme-bg': t.bg,
+                      }}
+                    >
+                      <span className="ws-gen-theme-icon">{t.icon}</span>
+                      <span className="ws-gen-theme-name">{t.name}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Dynamic Audio Podcast Options */}
+          {activeTab === 'audio' && (
+            <div className="ws-gen-options-panel">
+              {/* Audio Length */}
+              <div className="ws-gen-opt-group">
+                <div className="ws-gen-opt-label">⏱️ Conversation Length:</div>
+                <div className="ws-gen-pill-row">
+                  {AUDIO_LENGTHS.map(al => (
+                    <button
+                      key={al.id}
+                      type="button"
+                      className={`ws-gen-pill${audioLength === al.id ? ' active' : ''}`}
+                      onClick={() => setAudioLength(al.id)}
+                    >
+                      <span className="ws-gen-pill-title">{al.label}</span>
+                      <span className="ws-gen-pill-badge">{al.duration}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Audio Tone */}
+              <div className="ws-gen-opt-group">
+                <div className="ws-gen-opt-label">🎙️ Host Tone & Discussion Style:</div>
+                <div className="ws-gen-pill-row">
+                  {AUDIO_TONES.map(at => (
+                    <button
+                      key={at.id}
+                      type="button"
+                      className={`ws-gen-pill${audioTone === at.id ? ' active' : ''}`}
+                      onClick={() => setAudioTone(at.id)}
+                    >
+                      <span className="ws-gen-pill-title">{at.icon} {at.label}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
           <div className="studio-empty-features">
             {meta.feats.map(f => (
               <span key={f} className="studio-empty-feat">✓ {f}</span>
             ))}
           </div>
+
           {err && (
             <div style={{ color: 'var(--red)', fontSize: 12, marginBottom: 16, padding: '8px 16px', background: '#ef444412', borderRadius: 8, border: '1px solid #ef444430' }}>
               ⚠ {err}
             </div>
           )}
+
           <button
             className="btn-generate"
             onClick={() => handleGenerate(activeTab)}
@@ -538,7 +705,7 @@ export default function ProjectWorkspace({ project, onBack }) {
             Generate {meta.title}
           </button>
           <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 12 }}>
-            Uses Gemini Flash · ~5–10 seconds
+            Powered by Gemini AI · ~5–10 seconds
           </div>
         </div>
       );
@@ -550,7 +717,7 @@ export default function ProjectWorkspace({ project, onBack }) {
         <div className="studio-empty">
           <div style={{ width: 56, height: 56, borderRadius: '50%', border: '3px solid var(--accent-dim)', borderTopColor: 'var(--accent)', animation: 'spin 1s linear infinite', marginBottom: 24 }} />
           <div className="studio-empty-title loading-pulse">Generating {meta.title}...</div>
-          <div className="studio-empty-desc">Gemini Flash is reading your document and crafting {meta.title.toLowerCase()} content.</div>
+          <div className="studio-empty-desc">Gemini is reading your document and crafting {meta.title.toLowerCase()} content.</div>
           <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 8 }}>This takes ~5–10 seconds</div>
         </div>
       );
@@ -586,9 +753,21 @@ export default function ProjectWorkspace({ project, onBack }) {
 
     if (activeTab === 'mindmap')    return <><div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>{contentHeader}<div style={{ flex: 1, overflow: 'hidden' }}><MindMapViewer data={artifact} /></div></div></>;
     if (activeTab === 'audio')      return <><div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>{contentHeader}<div style={{ flex: 1, overflow: 'hidden' }}><AudioPlayer script={artifact} /></div></div></>;
-    if (activeTab === 'slides')     return <><div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>{contentHeader}<div style={{ flex: 1, overflow: 'hidden' }}><SlideDeckViewer slides={artifact} /></div></div></>;
-    if (activeTab === 'slides_img') return <><div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>{contentHeader}<div style={{ flex: 1, overflow: 'hidden' }}><SlidesWithImagesViewer slides={artifact} docTitle={activeDoc.title.replace('.pdf', '')} /></div></div></>;
+    if (activeTab === 'slides')     return <><div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>{contentHeader}<div style={{ flex: 1, overflow: 'hidden' }}><SlideDeckViewer slides={artifact} activeTheme={slideTheme} onThemeChange={setSlideTheme} /></div></div></>;
+    if (activeTab === 'slides_img') return <><div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>{contentHeader}<div style={{ flex: 1, overflow: 'hidden' }}><SlidesWithImagesViewer slides={artifact} docTitle={activeDoc.title.replace('.pdf', '')} activeTheme={slideTheme} onThemeChange={setSlideTheme} /></div></div></>;
     if (activeTab === 'infographic')return <><div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>{contentHeader}<div style={{ flex: 1, overflow: 'hidden' }}><InfographicViewer data={artifact} /></div></div></>;
+    if (activeTab === 'report')     return <><div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>{contentHeader}<div style={{ flex: 1, overflow: 'hidden' }}><ReportViewer data={artifact} /></div></div></>;
+    if (activeTab === 'datatable')  return <><div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>{contentHeader}<div style={{ flex: 1, overflow: 'hidden' }}><DataTableViewer data={artifact} /></div></div></>;
+    if (activeTab === 'synthesis')  return <><div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>{contentHeader}<div style={{ flex: 1, overflow: 'hidden' }}><ReportViewer data={{
+      reportTitle: artifact.synthesisTitle || 'Cross-Document Synthesis',
+      reportType: `${artifact.documentCount || 0} Documents Analyzed`,
+      executiveSummary: artifact.overallSynthesis || '',
+      keyFindings: (artifact.commonThemes || []).map(t => `${t.theme}: ${t.evidence}`),
+      sections: (artifact.uniqueInsights || []).map(u => ({ title: u.document, content: u.insight })),
+      strategicRecommendations: artifact.recommendations || [],
+      riskAnalysis: (artifact.contradictions || []).map(c => ({ risk: c.topic, severity: 'Medium', mitigation: `${c.docA} vs ${c.docB}` })),
+      conclusion: artifact.overallSynthesis || '',
+    }} /></div></div></>;
     if (activeTab === 'studyguide') return <><div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>{contentHeader}<div style={{ flex: 1, overflow: 'hidden' }}><StudyGuideViewer data={artifact} /></div></div></>;
   }
 
@@ -642,62 +821,82 @@ export default function ProjectWorkspace({ project, onBack }) {
             </div>
           </div>
 
-          <div className="ws-sources-label">Sources</div>
-
-          <div className="ws-sources-list">
-            {sources.length === 0 && !ocrState && (
-              <div style={{ padding: '16px 12px', fontSize: 12, color: 'var(--text-muted)', textAlign: 'center', border: '1px dashed var(--border-med)', borderRadius: 'var(--radius-md)', margin: '4px 0' }}>
-                No PDFs yet — upload one below
-              </div>
-            )}
-            {sources.map(src => (
-              <div
-                key={src.id}
-                className={`ws-source-item${activeDocId === src.id ? ' active' : ''}`}
-                onClick={() => handleDocChange(src.id)}
-              >
-                <div className="ws-source-icon">📄</div>
-                <div className="ws-source-info">
-                  <div className="ws-source-name">{src.title.replace('.pdf', '')}</div>
-                  <div className="ws-source-meta">{src.pages}p · {(src.words || 0).toLocaleString()} words</div>
-                </div>
-                <button className="ws-source-del" onClick={e => { e.stopPropagation(); handleDeleteSource(src.id); }}>✕</button>
-              </div>
-            ))}
-          </div>
-
-          {/* OCR Progress */}
-          {ocrState && (
-            <div className="ocr-progress">
-              <div className="ocr-progress-header">
-                <div className="ocr-spinner" />
-                <div>
-                  <div className="ocr-label">Reading PDF...</div>
-                  <div className="ocr-file">{ocrState.fileName}</div>
-                </div>
-              </div>
-              <div className="ocr-bar-track">
-                <div className="ocr-bar-fill" style={{ width: `${ocrState.progress}%` }} />
-              </div>
-              <div className="ocr-status">{ocrState.status}</div>
-            </div>
-          )}
-
-          {/* Upload zone */}
-          <div className="ws-upload-area">
-            <div
-              className={`ws-upload-zone${isDragOver ? ' dragover' : ''}`}
-              onClick={() => fileInputRef.current?.click()}
-              onDragOver={e => { e.preventDefault(); setIsDragOver(true); }}
-              onDragLeave={() => setIsDragOver(false)}
-              onDrop={handleDrop}
+          {/* Sidebar Tab Switcher */}
+          <div className="ws-sidebar-switcher">
+            <button
+              className={`ws-sidebar-tab-btn${sidebarTab === 'sources' ? ' active' : ''}`}
+              onClick={() => setSidebarTab('sources')}
             >
-              <input ref={fileInputRef} type="file" accept=".pdf" multiple onChange={handleFileInput} style={{ display: 'none' }} />
-              <div className="ws-upload-zone-icon">⬆</div>
-              <div className="ws-upload-zone-text">Upload PDF</div>
-              <div className="ws-upload-zone-hint">Click or drag &amp; drop file</div>
-            </div>
+              <span>📄</span> Sources ({sources.length})
+            </button>
+            <button
+              className={`ws-sidebar-tab-btn${sidebarTab === 'notes' ? ' active' : ''}`}
+              onClick={() => setSidebarTab('notes')}
+            >
+              <span>📝</span> Notes
+            </button>
           </div>
+
+          {sidebarTab === 'sources' ? (
+            <>
+              <div className="ws-sources-list">
+                {sources.length === 0 && !ocrState && (
+                  <div style={{ padding: '16px 12px', fontSize: 12, color: 'var(--text-muted)', textAlign: 'center', border: '1px dashed var(--border-med)', borderRadius: 'var(--radius-md)', margin: '8px 0' }}>
+                    No PDFs yet — upload one below
+                  </div>
+                )}
+                {sources.map(src => (
+                  <div
+                    key={src.id}
+                    className={`ws-source-item${activeDocId === src.id ? ' active' : ''}`}
+                    onClick={() => handleDocChange(src.id)}
+                  >
+                    <div className="ws-source-icon">📄</div>
+                    <div className="ws-source-info">
+                      <div className="ws-source-name">{src.title.replace('.pdf', '')}</div>
+                      <div className="ws-source-meta">{src.pages}p · {(src.words || 0).toLocaleString()} words</div>
+                    </div>
+                    <button className="ws-source-del" onClick={e => { e.stopPropagation(); handleDeleteSource(src.id); }}>✕</button>
+                  </div>
+                ))}
+              </div>
+
+              {/* OCR Progress */}
+              {ocrState && (
+                <div className="ocr-progress">
+                  <div className="ocr-progress-header">
+                    <div className="ocr-spinner" />
+                    <div>
+                      <div className="ocr-label">Reading PDF...</div>
+                      <div className="ocr-file">{ocrState.fileName}</div>
+                    </div>
+                  </div>
+                  <div className="ocr-bar-track">
+                    <div className="ocr-bar-fill" style={{ width: `${ocrState.progress}%` }} />
+                  </div>
+                  <div className="ocr-status">{ocrState.status}</div>
+                </div>
+              )}
+
+              {/* Upload zone */}
+              <div className="ws-upload-area">
+                <div
+                  className={`ws-upload-zone${isDragOver ? ' dragover' : ''}`}
+                  onClick={() => fileInputRef.current?.click()}
+                  onDragOver={e => { e.preventDefault(); setIsDragOver(true); }}
+                  onDragLeave={() => setIsDragOver(false)}
+                  onDrop={handleDrop}
+                >
+                  <input ref={fileInputRef} type="file" accept=".pdf" multiple onChange={handleFileInput} style={{ display: 'none' }} />
+                  <div className="ws-upload-zone-icon">⬆</div>
+                  <div className="ws-upload-zone-text">Upload PDF</div>
+                  <div className="ws-upload-zone-hint">Click or drag &amp; drop file</div>
+                </div>
+              </div>
+            </>
+          ) : (
+            <NotesPanel projectId={project.id} docId={activeDocId} />
+          )}
         </aside>
 
         {/* Studio */}

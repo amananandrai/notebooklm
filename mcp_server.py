@@ -10,6 +10,7 @@ import subprocess
 import tempfile
 import time
 import urllib.request
+import urllib.error
 import wave
 from typing import Any, List, Optional, Union
 from fastapi import FastAPI, Request, HTTPException
@@ -86,6 +87,16 @@ class ArtifactSchema(BaseModel):
     docId: str
     featureType: str
     data: Union[dict, list, Any]
+
+class NoteSchema(BaseModel):
+    id: str
+    projectId: str
+    docId: Optional[str] = None
+    title: str
+    content: str
+    tags: List[str] = []
+    createdAt: str
+    updatedAt: str
 
 class TTSRequest(BaseModel):
     turns: List[dict]
@@ -422,15 +433,60 @@ async def get_artifact(project_id: str, doc_id: str, feature_type: str):
     return art["data"] if art else None
 
 
+# ── Notes ──
+@app.post("/api/notes")
+async def create_note(note: NoteSchema):
+    if db is None:
+        raise HTTPException(status_code=503, detail="MongoDB is not available")
+    await db["notes"].update_one({"id": note.id}, {"$set": note.dict()}, upsert=True)
+    return {"status": "success"}
+
+@app.get("/api/notes/{project_id}")
+async def get_notes(project_id: str):
+    if db is None:
+        return []
+    cursor = db["notes"].find({"projectId": project_id}, {"_id": 0}).sort("createdAt", -1)
+    return await cursor.to_list(length=200)
+
+@app.delete("/api/notes/{note_id}")
+async def delete_note(note_id: str):
+    if db is None:
+        raise HTTPException(status_code=503, detail="MongoDB is not available")
+    await db["notes"].delete_one({"id": note_id})
+    return {"status": "success"}
+
+
+GEMINI_MODELS = ["gemini-3.5-flash", "gemini-flash-latest", "gemini-3-flash-preview"]
+
 def call_gemini(prompt: str) -> str:
     payload = json.dumps({
         "contents": [{"parts": [{"text": prompt}]}],
         "generationConfig": {"temperature": 0.7, "maxOutputTokens": 8192}
     }).encode()
-    req = urllib.request.Request(GEMINI_URL, data=payload, headers={"Content-Type": "application/json"}, method="POST")
-    resp = urllib.request.urlopen(req, timeout=60)
-    data = json.loads(resp.read().decode())
-    return data["candidates"][0]["content"]["parts"][0]["text"]
+    
+    last_err = None
+    for model_name in GEMINI_MODELS:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={GEMINI_API_KEY}"
+        for attempt in range(2):
+            try:
+                req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"}, method="POST")
+                resp = urllib.request.urlopen(req, timeout=90)
+                data = json.loads(resp.read().decode())
+                return data["candidates"][0]["content"]["parts"][0]["text"]
+            except urllib.error.HTTPError as e:
+                last_err = e
+                print(f"[Gemini API] {model_name} returned HTTP {e.code} on attempt {attempt + 1}")
+                if e.code in (503, 429, 500):
+                    time.sleep(1)
+                    continue
+                break
+            except Exception as e:
+                last_err = e
+                print(f"[Gemini API] {model_name} failed: {e}")
+                time.sleep(1)
+                break
+                
+    raise last_err or RuntimeError("All Gemini model endpoints failed.")
 
 
 def parse_json(text: str):
@@ -470,6 +526,9 @@ async def handle_mcp(request: Request):
                 {"name": "generate_infographic", "description": "Generate a structured infographic JSON from document text."},
                 {"name": "generate_study_guide", "description": "Generate flashcards and quiz questions from document text."},
                 {"name": "answer_question", "description": "Answer a user question grounded in the document."},
+                {"name": "generate_report", "description": "Generate an executive report with key findings and recommendations."},
+                {"name": "generate_data_table", "description": "Extract structured tabular data from document text."},
+                {"name": "generate_project_synthesis", "description": "Cross-document synthesis analysis across multiple sources."},
             ]}
         }
 
@@ -483,20 +542,34 @@ async def handle_mcp(request: Request):
         clean_title = re.sub(r"\.pdf$", "", title, flags=re.IGNORECASE)
 
         try:
+            slide_count = int(args.get("slideCount") or args.get("slide_count") or 7)
+            theme = str(args.get("theme") or "light_slate")
+            audio_length = str(args.get("audioLength") or args.get("lengthMode") or "standard")
+            audio_tone = str(args.get("audioTone") or args.get("tone") or "casual")
+
             if tool == "generate_mindmap":
                 result = gen_mindmap(clean_title, text)
             elif tool == "generate_audio_overview":
-                result = gen_audio(clean_title, text)
+                result = gen_audio(clean_title, text, length_mode=audio_length, tone=audio_tone)
             elif tool == "generate_slide_deck":
-                result = gen_slides(clean_title, text)
+                result = gen_slides(clean_title, text, slide_count=slide_count, theme=theme)
             elif tool == "generate_slides_with_images":
-                result = gen_slides_with_images(clean_title, text)
+                result = gen_slides_with_images(clean_title, text, slide_count=slide_count, theme=theme)
             elif tool == "generate_infographic":
                 result = gen_infographic(clean_title, text)
             elif tool == "generate_study_guide":
                 result = gen_study_guide(clean_title, text)
             elif tool == "answer_question":
                 result = answer_question(args.get("question", ""), title, text)
+            elif tool == "generate_report":
+                result = gen_report(clean_title, text)
+            elif tool == "generate_data_table":
+                result = gen_data_table(clean_title, text)
+            elif tool == "generate_project_synthesis":
+                texts = args.get("documents", [])
+                if not texts:
+                    texts = [{"title": title, "text": text}]
+                result = gen_project_synthesis(texts)
             else:
                 return {"jsonrpc": "2.0", "id": rpc_id, "error": {"code": -32601, "message": f"Unknown tool: {tool}"}}
 
@@ -554,13 +627,25 @@ Every label and description must be grounded in actual document content. No plac
     return parse_json(call_gemini(prompt))
 
 
-def gen_audio(title: str, text: str) -> list:
-    prompt = f"""You are generating a NotebookLM "Audio Overview" podcast. Two hosts — Alex (Host A) and Jordan (Host B) — have a lively natural conversation. They ask each other questions, react genuinely, use analogies, and unpack ideas in plain language.
+def gen_audio(title: str, text: str, length_mode: str = "standard", tone: str = "casual") -> list:
+    turn_counts = {"quick": 6, "standard": 12, "deep": 20}
+    num_turns = turn_counts.get(length_mode, 12)
+
+    tone_instructions = {
+        "casual": "Lively, natural conversational banter. Alex and Jordan use intuitive everyday analogies, humor, and friendly reactions.",
+        "analytical": "Rigorous, technical and analytical discussion. Alex and Jordan cite specific data, methodologies, and architectural details.",
+        "debate": "Friendly intellectual debate. Alex and Jordan challenge each other with devil's advocate points, counterarguments, and trade-offs."
+    }
+    tone_guide = tone_instructions.get(tone, tone_instructions["casual"])
+
+    prompt = f"""You are generating a NotebookLM "Audio Overview" podcast.
+Hosts: Alex (Host A) and Jordan (Host B).
+Tone & Style: {tone_guide}
 
 Document: {title}
 Text: {text}
 
-Generate 8-10 dialogue turns. Return ONLY a valid JSON array (no markdown fences):
+Generate EXACTLY {num_turns} dialogue turns. Return ONLY a valid JSON array (no markdown fences):
 [
   {{"speaker": "Host A (Alex)", "text": "<dialogue grounded in document>", "timestamp": "00:04"}},
   {{"speaker": "Host B (Jordan)", "text": "<dialogue grounded in document>", "timestamp": "00:28"}},
@@ -570,73 +655,82 @@ Reference actual facts, figures, and arguments from the document. Timestamps inc
     return parse_json(call_gemini(prompt))
 
 
-def gen_slides(title: str, text: str) -> list:
-    prompt = f"""You are a professional AI presentation designer. Create a slide deck from this document. Each slide must have real content from the document.
-
+def gen_slides(title: str, text: str, slide_count: int = 7, theme: str = "light_slate") -> list:
+    count = max(3, min(16, int(slide_count)))
+    prompt = f"""You are a professional AI presentation designer. Create a slide deck from this document with EXACTLY {count} slides.
 Document: {title}
 Text: {text}
 
-Return ONLY a valid JSON array of 5 slides (no markdown fences):
+Return ONLY a valid JSON array of {count} slides (no markdown fences):
 [
   {{
     "id": 1, "title": "<title>", "subtitle": "<subtitle>",
     "type": "title",
-    "bullets": ["<bullet from doc>", "<bullet from doc>", "<bullet from doc>"],
+    "bullets": ["<bullet 1>", "<bullet 2>", "<bullet 3>"],
     "speakerNotes": "<notes grounded in document>"
   }},
   ...
 ]
-Types: "title" for slide 1, "content" for body slides, "summary" for final. All content from actual document."""
-    return parse_json(call_gemini(prompt))
-
+Types: "title" for slide 1, "content" for body slides, "summary" for final slide {count}. All content from actual document."""
+    slides = parse_json(call_gemini(prompt))
+    return slides[:count]
 
 
 def call_pollinations(image_prompt: str, width: int = 1280, height: int = 720, seed: int = 42, model: str = "flux") -> str:
     """Generate an image via Pollinations.ai (free, no API key) and return a URL.
     Pollinations.ai is an open-source free image generation service."""
     import urllib.parse
-    # Encode the prompt for URL
     encoded = urllib.parse.quote(image_prompt[:400])
     url = f"https://image.pollinations.ai/prompt/{encoded}?width={width}&height={height}&seed={seed}&nologo=true&model={model}"
-    # Verify the URL is reachable (HEAD request)
     try:
         req = urllib.request.Request(url, method='HEAD')
         urllib.request.urlopen(req, timeout=10)
     except Exception:
-        pass  # Return the URL anyway — browser will load it directly
+        pass
     return url
 
 
-def gen_slides_with_images(title: str, text: str) -> list:
-    """Generate slides with AI image prompts via Gemini, then build Pollinations.ai image URLs."""
-    prompt = f"""You are a professional AI presentation designer. Create a visual slide deck from this document.
+def gen_slides_with_images(title: str, text: str, slide_count: int = 7, theme: str = "light_slate") -> list:
+    """Generate slides with AI image prompts via Gemini, then build Pollinations.ai image URLs matching the chosen theme."""
+    count = max(3, min(16, int(slide_count)))
+    theme_modifiers = {
+        "light_slate": "clean corporate photography, soft bright studio lighting, ultra sharp, 8k",
+        "dark_obsidian": "dark atmospheric cyberpunk, glowing cyan volumetric lighting, octane 3d render, 8k",
+        "corporate_navy": "sleek architectural boardroom, modern minimalism, deep blue tones, crisp lighting",
+        "sunset_warmth": "warm golden hour sunlight, architectural editorial photography, warm amber tones, 8k",
+        "emerald_minimalist": "biophilic organic design, minimalist clean studio, soft diffuse emerald lighting, 8k",
+    }
+    modifier = theme_modifiers.get(theme, theme_modifiers["light_slate"])
+
+    prompt = f"""You are a professional AI presentation designer. Create a visual slide deck from this document with EXACTLY {count} slides.
 
 Document: {title}
 Text: {text}
 
-Return ONLY a valid JSON array of 5 slides (no markdown fences):
+Return ONLY a valid JSON array of {count} slides (no markdown fences):
 [
   {{
     "id": 1, "title": "<title>", "subtitle": "<subtitle>",
     "type": "title",
-    "bullets": ["<bullet from doc>", "<bullet from doc>", "<bullet from doc>"],
+    "bullets": ["<bullet 1>", "<bullet 2>", "<bullet 3>"],
     "speakerNotes": "<notes grounded in document>",
-    "imagePrompt": "<vivid, detailed image description (10-20 words), cinematic scene, no text, concept art style>"
+    "imagePrompt": "<vivid 10-15 word visual scene description, no text, cinematic lighting>"
   }},
   ...
 ]
-Types: \"title\" for slide 1, \"content\" for body slides, \"summary\" for final.
-All content must be grounded in actual document content. imagePrompt must be a vivid visual scene (no text in image)."""
+Types: "title" for slide 1, "content" for body slides, "summary" for final slide {count}.
+All content must be grounded in actual document content. imagePrompt must be a vivid visual scene."""
 
     slides = parse_json(call_gemini(prompt))
+    slides = slides[:count]
 
-    # Build a Pollinations.ai URL for each slide (using flux-realism model)
+    # Build Pollinations URL for each slide
     for i, slide in enumerate(slides):
-        img_prompt = slide.get("imagePrompt", f"{title} concept, cinematic, dark background")
-        # Add style keywords for consistency
-        full_prompt = f"{img_prompt}, cinematic lighting, 8k, dark moody atmosphere, vibrant colors, photo realistic"
+        img_prompt = slide.get("imagePrompt", f"{title} concept, visual illustration")
+        full_prompt = f"{img_prompt}, {modifier}"
         slide["imageUrl"] = call_pollinations(full_prompt, width=1280, height=720, seed=i * 17 + 7, model="flux-realism")
-        slide["imageData"] = slide["imageUrl"]  # keep imageData key for viewer compatibility
+        slide["imageData"] = slide["imageUrl"]
+        slide["theme"] = theme
 
     return slides
 
@@ -733,6 +827,97 @@ Give a clear, accurate, detailed answer. If not in the document, say so honestly
         "text": f"**[Gemini — Document Grounded]**\n\n{answer}",
         "citations": [title, "Gemini Analysis"]
     }
+
+
+def gen_report(title: str, text: str) -> dict:
+    prompt = f"""Create a comprehensive executive report from this document. Return ONLY valid JSON (no markdown fences):
+{{
+  "reportTitle": "<concise title, max 10 words>",
+  "reportType": "Detailed",
+  "executiveSummary": "<3-4 sentence executive summary of the document>",
+  "keyFindings": [
+    "<finding 1 — a specific, data-grounded insight>",
+    "<finding 2>",
+    "<finding 3>",
+    "<finding 4>",
+    "<finding 5>"
+  ],
+  "sections": [
+    {{"title": "<section heading>", "content": "<2-3 paragraph detailed analysis for this section>"}},
+    {{"title": "<section heading>", "content": "<2-3 paragraph detailed analysis>"}},
+    {{"title": "<section heading>", "content": "<2-3 paragraph detailed analysis>"}}
+  ],
+  "strategicRecommendations": [
+    "<actionable recommendation 1>",
+    "<actionable recommendation 2>",
+    "<actionable recommendation 3>"
+  ],
+  "riskAnalysis": [
+    {{"risk": "<risk name>", "severity": "High|Medium|Low", "mitigation": "<mitigation strategy>"}},
+    {{"risk": "<risk name>", "severity": "High|Medium|Low", "mitigation": "<mitigation strategy>"}}
+  ],
+  "conclusion": "<2-3 sentence conclusion with key takeaway>"
+}}
+
+Document: {title}
+Text: {text}
+
+All content must be grounded in the actual document. No placeholders."""
+    return parse_json(call_gemini(prompt))
+
+
+def gen_data_table(title: str, text: str) -> dict:
+    prompt = f"""Extract structured tabular data from this document. Identify key metrics, comparisons, specifications, or any data that can be organized in a table format. Return ONLY valid JSON (no markdown fences):
+{{
+  "tableTitle": "<descriptive table title>",
+  "description": "<one sentence describing what this table captures>",
+  "columns": ["<Column 1 Name>", "<Column 2 Name>", "<Column 3 Name>", "<Column 4 Name>"],
+  "rows": [
+    {{"<Column 1 Name>": "<value>", "<Column 2 Name>": "<value>", "<Column 3 Name>": "<value>", "<Column 4 Name>": "<value>"}},
+    {{"<Column 1 Name>": "<value>", "<Column 2 Name>": "<value>", "<Column 3 Name>": "<value>", "<Column 4 Name>": "<value>"}},
+    {{"<Column 1 Name>": "<value>", "<Column 2 Name>": "<value>", "<Column 3 Name>": "<value>", "<Column 4 Name>": "<value>"}},
+    {{"<Column 1 Name>": "<value>", "<Column 2 Name>": "<value>", "<Column 3 Name>": "<value>", "<Column 4 Name>": "<value>"}},
+    {{"<Column 1 Name>": "<value>", "<Column 2 Name>": "<value>", "<Column 3 Name>": "<value>", "<Column 4 Name>": "<value>"}},
+    {{"<Column 1 Name>": "<value>", "<Column 2 Name>": "<value>", "<Column 3 Name>": "<value>", "<Column 4 Name>": "<value>"}}
+  ],
+  "summary": "<2 sentence summary of the key patterns or insights from this data>"
+}}
+
+Document: {title}
+Text: {text}
+
+Extract real data from the document. Create 4-6 meaningful columns and 5-8 rows minimum. All values must be grounded in actual document content."""
+    return parse_json(call_gemini(prompt))
+
+
+def gen_project_synthesis(texts: list) -> dict:
+    combined = "\n\n---DOCUMENT SEPARATOR---\n\n".join([f"[{t['title']}]:\n{t['text']}" for t in texts])
+    prompt = f"""You are analyzing multiple documents together. Create a cross-document synthesis report. Return ONLY valid JSON (no markdown fences):
+{{
+  "synthesisTitle": "<title for the cross-document analysis>",
+  "documentCount": {len(texts)},
+  "documentsAnalyzed": [{', '.join(['"' + t['title'] + '"' for t in texts])}],
+  "commonThemes": [
+    {{"theme": "<shared theme across documents>", "evidence": "<specific examples from multiple docs>"}},
+    {{"theme": "<shared theme>", "evidence": "<examples>"}},
+    {{"theme": "<shared theme>", "evidence": "<examples>"}}
+  ],
+  "contradictions": [
+    {{"topic": "<where documents disagree>", "docA": "<position from doc A>", "docB": "<position from doc B>"}}
+  ],
+  "uniqueInsights": [
+    {{"document": "<doc name>", "insight": "<unique insight only found in this document>"}},
+    {{"document": "<doc name>", "insight": "<unique insight>"}}
+  ],
+  "overallSynthesis": "<3-4 sentence unified summary combining insights from all documents>",
+  "recommendations": ["<recommendation 1>", "<recommendation 2>", "<recommendation 3>"]
+}}
+
+Documents:
+{combined[:15000]}
+
+All analysis must be grounded in actual document content. Identify real overlaps and differences."""
+    return parse_json(call_gemini(prompt))
 
 
 if __name__ == "__main__":
