@@ -42,6 +42,24 @@ async function downloadPDF(slides, docTitle, activeTheme) {
   const textSecondaryRgb = hexToRgb(theme.textSecondary);
   const accentRgb = hexToRgb(theme.accent);
 
+  const getPdfFont = (fontFamily) => {
+    if (!fontFamily) return 'helvetica';
+    if (fontFamily.includes('Merriweather') || fontFamily.includes('serif')) return 'times';
+    if (fontFamily.includes('Space') || fontFamily.includes('monospace')) return 'courier';
+    return 'helvetica';
+  };
+  const pdfFont = getPdfFont(theme.fontFamily);
+
+  const getPdfBullet = (style) => {
+    switch (style) {
+      case 'arrow': return '>';
+      case 'square': return '-'; // jsPDF standard fonts lack solid square
+      case 'dash': return '-';
+      default: return '•'; // char 149
+    }
+  };
+  const pdfBullet = getPdfBullet(theme.bulletStyle);
+
   const rawSvg = getThemeSvgString(activeTheme);
   const bgPng = await svgToPngDataUrl(rawSvg, 1440, 800);
 
@@ -62,31 +80,36 @@ async function downloadPDF(slides, docTitle, activeTheme) {
       pdf.line(15, 15, W - 15, 15);
     }
 
-    pdf.setFont('helvetica', 'bold');
+    pdf.setFont(pdfFont, 'bold');
     pdf.setFontSize(slide.type === 'title' ? 24 : 20);
     pdf.setTextColor(...textPrimaryRgb);
+    
     const titleLines = pdf.splitTextToSize(slide.title || '', W - 50);
-    pdf.text(titleLines, 25, 35);
+    const alignProps = theme.titleAlignment === 'center' ? { align: 'center' } : {};
+    const titleX = theme.titleAlignment === 'center' ? W / 2 : 25;
+    
+    pdf.text(titleLines, titleX, 35, alignProps);
 
     let currentY = 35 + titleLines.length * 10;
     
     if (slide.subtitle) {
-      pdf.setFont('helvetica', 'normal');
+      pdf.setFont(pdfFont, 'normal');
       pdf.setFontSize(14);
       pdf.setTextColor(...textSecondaryRgb);
-      pdf.text(slide.subtitle, 25, currentY);
+      pdf.text(slide.subtitle, titleX, currentY, alignProps);
       currentY += 15;
     } else {
       currentY += 5;
     }
 
     if (slide.bullets?.length > 0) {
-      pdf.setFont('helvetica', 'normal');
+      pdf.setFont(pdfFont, 'normal');
       pdf.setFontSize(12);
       pdf.setTextColor(...textSecondaryRgb);
+      const bulletX = theme.titleAlignment === 'center' ? (W / 2) - 80 : 30;
       slide.bullets.forEach((b) => {
-        const lines = pdf.splitTextToSize(`• ${b}`, W - 50);
-        pdf.text(lines, 30, currentY);
+        const lines = pdf.splitTextToSize(`${pdfBullet} ${b}`, W - (bulletX + 20));
+        pdf.text(lines, bulletX, currentY);
         currentY += lines.length * 7;
       });
     }
@@ -112,6 +135,26 @@ async function downloadPPTX(slides, docTitle, activeTheme) {
   const textSecondaryHex = theme.textSecondary.replace('#', '');
   const accentHex = theme.accent.replace('#', '');
 
+  const getPptxFont = (fontFamily) => {
+    if (!fontFamily) return 'Helvetica';
+    if (fontFamily.includes('Merriweather') || fontFamily.includes('serif')) return 'Times New Roman';
+    if (fontFamily.includes('Space') || fontFamily.includes('monospace')) return 'Courier New';
+    return 'Helvetica';
+  };
+  const pptxFont = getPptxFont(theme.fontFamily);
+
+  const getPptxBullet = (style) => {
+    switch (style) {
+      case 'arrow': return { code: '2794' };
+      case 'square': return { code: '25A0' };
+      case 'dash': return { code: '2014' };
+      default: return true;
+    }
+  };
+  const pptxBullet = getPptxBullet(theme.bulletStyle);
+
+  const pptxAlign = theme.titleAlignment === 'center' ? 'center' : 'left';
+
   const rawSvg = getThemeSvgString(activeTheme);
   const bgPng = await svgToPngDataUrl(rawSvg, 1440, 800);
 
@@ -126,30 +169,30 @@ async function downloadPPTX(slides, docTitle, activeTheme) {
     }
 
     sld.addText(`Slide ${i + 1} · ${theme.name}`, {
-      x: 1.0, y: 0.8, w: 5.0, h: 0.4,
-      fontSize: 10, bold: true, color: theme.textMuted.replace('#', ''), fontFace: 'Helvetica',
+      x: 1.0, y: 0.8, w: 10.3, h: 0.4,
+      fontSize: 10, bold: true, color: theme.textMuted.replace('#', ''), fontFace: pptxFont, align: pptxAlign
     });
 
     sld.addText(slide.title, {
-      x: 1.0, y: 1.2, w: 11.3, h: 1.0,
+      x: 1.0, y: 1.2, w: 10.3, h: 1.0,
       fontSize: slide.type === 'title' ? 32 : 26,
-      bold: true, color: textPrimaryHex, fontFace: 'Helvetica',
+      bold: true, color: textPrimaryHex, fontFace: pptxFont, align: pptxAlign
     });
 
     if (slide.subtitle) {
       sld.addText(slide.subtitle, {
-        x: 1.0, y: 2.1, w: 11.3, h: 0.5,
-        fontSize: 16, color: textSecondaryHex, fontFace: 'Helvetica',
+        x: 1.0, y: 2.1, w: 10.3, h: 0.5,
+        fontSize: 16, color: textSecondaryHex, fontFace: pptxFont, align: pptxAlign
       });
     }
 
     if (slide.bullets && slide.bullets.length > 0) {
       const bulletItems = slide.bullets.map(b => ({
         text: b,
-        options: { fontSize: 14, color: textSecondaryHex, bullet: { color: accentHex }, spaceAfter: 10, fontFace: 'Helvetica' },
+        options: { breakLine: true, fontSize: 14, color: textSecondaryHex, bullet: pptxBullet, spaceAfter: 10, fontFace: pptxFont, align: pptxAlign },
       }));
       sld.addText(bulletItems, {
-        x: 1.0, y: slide.subtitle ? 2.7 : 2.2, w: 11.3, h: 3.5,
+        x: 1.0, y: slide.subtitle ? 2.7 : 2.2, w: 10.3, h: 3.5, align: pptxAlign
       });
     }
   }
@@ -167,6 +210,16 @@ export default function SlideDeckViewer({ slides, docTitle, activeTheme = 'clean
   const slide = list[current];
 
   const currentTheme = DECK_THEMES[themeId] || DECK_THEMES.clean_slate;
+
+  const getBulletChar = (style) => {
+    switch(style) {
+      case 'arrow': return '➔';
+      case 'square': return '■';
+      case 'dash': return '—';
+      case 'circle':
+      default: return '•';
+    }
+  };
 
   const handleSelectTheme = (tId) => {
     setThemeId(tId);
@@ -332,16 +385,19 @@ export default function SlideDeckViewer({ slides, docTitle, activeTheme = 'clean
             background: 'transparent',
             borderColor: currentTheme.border,
             boxShadow: currentTheme.cardShadow,
+            borderRadius: currentTheme.cardBorderRadius || 'var(--radius-xl)',
+            fontFamily: currentTheme.fontFamily || 'inherit',
           }}
         >
           <DeckBackground themeId={themeId} />
           {/* Main Slide Header & Text Body */}
-          <div className="deck-card-body" style={{ position: 'relative', zIndex: 1 }}>
+          <div className="deck-card-body" style={{ position: 'relative', zIndex: 1, textAlign: currentTheme.titleAlignment || 'left' }}>
             <h1
               className="deck-title"
               style={{
                 color: currentTheme.textPrimary,
                 fontSize: isTitle ? '32px' : '26px',
+                fontWeight: currentTheme.titleFontWeight || '800',
               }}
             >
               {slide.title}
@@ -373,7 +429,7 @@ export default function SlideDeckViewer({ slides, docTitle, activeTheme = 'clean
                       className="deck-bullet-bullet"
                       style={{ color: currentTheme.bulletColor || currentTheme.accent }}
                     >
-                      •
+                      {getBulletChar(currentTheme.bulletStyle)}
                     </span>
                     <span>{b}</span>
                   </li>

@@ -20,6 +20,11 @@ export const DECK_THEMES = {
     accentBadgeBorder: 'rgba(37, 99, 235, 0.2)',
     bulletColor: '#2563eb',
     notesBg: '#f1f5f9',
+    fontFamily: '"Inter", sans-serif',
+    titleFontWeight: '800',
+    titleAlignment: 'center',
+    bulletStyle: 'circle',
+    cardBorderRadius: '16px',
   },
   modern_purple: {
     id: 'modern_purple',
@@ -39,6 +44,11 @@ export const DECK_THEMES = {
     accentBadgeBorder: 'rgba(124, 58, 237, 0.25)',
     bulletColor: '#7c3aed',
     notesBg: '#f3e8ff',
+    fontFamily: '"Outfit", sans-serif',
+    titleFontWeight: '900',
+    titleAlignment: 'left',
+    bulletStyle: 'arrow',
+    cardBorderRadius: '24px',
   },
   executive_dark: {
     id: 'executive_dark',
@@ -58,6 +68,11 @@ export const DECK_THEMES = {
     accentBadgeBorder: 'rgba(56, 189, 248, 0.3)',
     bulletColor: '#38bdf8',
     notesBg: '#0f172a',
+    fontFamily: '"Space Grotesk", sans-serif',
+    titleFontWeight: '700',
+    titleAlignment: 'left',
+    bulletStyle: 'square',
+    cardBorderRadius: '0px',
   },
   warm_ivory: {
     id: 'warm_ivory',
@@ -77,6 +92,11 @@ export const DECK_THEMES = {
     accentBadgeBorder: 'rgba(180, 83, 9, 0.25)',
     bulletColor: '#d97706',
     notesBg: '#fef3c7',
+    fontFamily: '"Merriweather", serif',
+    titleFontWeight: '700',
+    titleAlignment: 'center',
+    bulletStyle: 'dash',
+    cardBorderRadius: '8px',
   },
 };
 
