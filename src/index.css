@@ -2635,7 +2635,7 @@ textarea.modal-input { resize: vertical; min-height: 80px; }
   transition: all var(--transition);
   display: flex;
   flex-direction: column;
-  justify-content: space-between;
+  justify-content: flex-start;
   overflow: hidden;
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.05);
   flex-shrink: 0;
@@ -2653,7 +2653,7 @@ textarea.modal-input { resize: vertical; min-height: 80px; }
   flex-direction: column;
   gap: 18px;
   box-sizing: border-box;
-  flex: 1;
+  flex: 1 0 auto;
 }
 
 .deck-title {

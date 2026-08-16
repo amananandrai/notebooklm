@@ -316,12 +316,14 @@ export default function SlidesWithImagesViewer({ slides, docTitle, activeTheme =
           </div>
         </div>
 
-        {/* 16:9 Aspect Ratio Slide Canvas */}
+        {/* Flexible Aspect Ratio Slide Canvas */}
         <div
           style={{
             width: '100%',
             maxWidth: 840,
-            aspectRatio: '16 / 9',
+            minHeight: 480,
+            display: 'flex',
+            flexDirection: 'column',
             position: 'relative',
             borderRadius: 'var(--radius-lg)',
             overflow: 'hidden',
@@ -355,7 +357,7 @@ export default function SlidesWithImagesViewer({ slides, docTitle, activeTheme =
           <div
             style={{
               position: 'relative', zIndex: 2,
-              height: '100%', boxSizing: 'border-box',
+              flex: 1, boxSizing: 'border-box',
               padding: '36px 42px',
               display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
               color: '#ffffff',
@@ -393,7 +395,7 @@ export default function SlidesWithImagesViewer({ slides, docTitle, activeTheme =
 
             {/* Bottom: Speaker Notes */}
             {slide.speakerNotes && (
-              <div style={{ fontSize: 11, fontStyle: 'italic', opacity: 0.75, borderTop: '1px solid rgba(255,255,255,0.15)', paddingTop: 8, textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
+              <div style={{ fontSize: 13, fontStyle: 'italic', opacity: 0.85, borderTop: '1px solid rgba(255,255,255,0.15)', paddingTop: 12, marginTop: 16, lineHeight: 1.6 }}>
                 💡 {slide.speakerNotes}
               </div>
             )}
