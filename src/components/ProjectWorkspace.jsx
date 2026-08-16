@@ -82,6 +82,12 @@ const TAB_META = {
   chat:        { title: 'Chat Assistant', icon: '💬', desc: 'Ask questions and chat directly with Gemini AI about your document.', feats: ['Strict document grounding', 'Source citations', 'Download chat log'] },
 };
 
+function cleanTitle(val) {
+  if (!val) return 'Document';
+  if (typeof val === 'object') return (val.title || val.name || 'Document').replace(/\.pdf$/i, '');
+  return String(val).replace(/\.pdf$/i, '');
+}
+
 export default function ProjectWorkspace({ project, onBack }) {
   const [sources, setSources]         = useState(project.sources || []);
   const [activeDocId, setActiveDocId] = useState(() => sources[0]?.id || null);
@@ -154,13 +160,16 @@ export default function ProjectWorkspace({ project, onBack }) {
           setOcrState({ fileName: file.name, progress, status });
         });
 
-        const docId = `doc_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+        const docId = parsed.id || `doc_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+        const docTitle = parsed.title || file.name || 'Document.pdf';
         const newDoc = {
           id: docId,
-          title: parsed.fileName,
-          rawText: parsed.rawText,
-          pages: parsed.numPages,
-          words: parsed.wordCount,
+          projectId: project.id,
+          title: docTitle,
+          rawText: parsed.rawText || '',
+          pages: Number(parsed.pages) || 1,
+          words: Number(parsed.words) || 0,
+          uploadedAt: parsed.uploadedAt || new Date().toISOString(),
           createdAt: new Date().toISOString(),
         };
 
@@ -278,19 +287,22 @@ export default function ProjectWorkspace({ project, onBack }) {
   }
 
   function handleDownloadArtifact(tab) {
-    if (!activeDocId || !activeDoc) return;
+    if (!activeDocId) return;
+    const activeDoc = sources.find(s => s.id === activeDocId);
+    if (!activeDoc) return;
     
     let content = '';
     let fileName = '';
+    const safeTitle = cleanTitle(activeDoc);
 
     if (tab === 'video') {
-      fileName = `${activeDoc.title.replace('.pdf', '')}_Presentation_Script.md`;
+      fileName = `${safeTitle}_Presentation_Script.md`;
       const audioKey = `${activeDocId}_audio`;
       const slidesKey = `${activeDocId}_slides`;
       const audioData = artifacts[audioKey] || [];
       const slidesData = artifacts[slidesKey] || [];
       
-      content = `# Full 3D Presentation Script & Slides — ${activeDoc.title}\n\n`;
+      content = `# Full 3D Presentation Script & Slides — ${safeTitle}\n\n`;
       content += `## 🎙️ Podcast Audio Dialogue Script\n\n` + 
         audioData.map(turn => `**${turn.speaker}**: ${turn.text}`).join('\n\n') + '\n\n';
       content += `---\n\n## 📊 Slide Deck Outline\n\n` + 
@@ -303,7 +315,7 @@ export default function ProjectWorkspace({ project, onBack }) {
       if (!data) return;
 
       if (tab === 'mindmap') {
-        fileName = `${activeDoc.title.replace('.pdf', '')}_MindMap.md`;
+        fileName = `${safeTitle}_MindMap.md`;
         
         function formatNode(node, depth = 0) {
           let str = '  '.repeat(depth) + `- **${node.label}** (${node.category || 'Concept'})\n`;
@@ -317,18 +329,18 @@ export default function ProjectWorkspace({ project, onBack }) {
           }
           return str;
         }
-        content = `# Mind Map Tree — ${activeDoc.title}\n\n${formatNode(data)}`;
+        content = `# Mind Map Tree — ${safeTitle}\n\n${formatNode(data)}`;
       }
       
       else if (tab === 'audio') {
-        fileName = `${activeDoc.title.replace('.pdf', '')}_AudioScript.txt`;
-        content = `NotebookLM Podcast Dialogue Script - ${activeDoc.title}\n\n` + 
+        fileName = `${safeTitle}_AudioScript.txt`;
+        content = `NotebookLM Podcast Dialogue Script - ${safeTitle}\n\n` + 
           data.map(turn => `[${turn.speaker}]: ${turn.text}`).join('\n\n');
       }
       
       else if (tab === 'slides') {
-        fileName = `${activeDoc.title.replace('.pdf', '')}_Slides.md`;
-        content = `# Slides Presentation Outline — ${activeDoc.title}\n\n` + 
+        fileName = `${safeTitle}_Slides.md`;
+        content = `# Slides Presentation Outline — ${safeTitle}\n\n` + 
           data.map((s, idx) => {
             let slideStr = `## Slide ${idx + 1}: ${s.title}\n`;
             if (s.subtitle) slideStr += `*${s.subtitle}*\n\n`;
@@ -339,8 +351,8 @@ export default function ProjectWorkspace({ project, onBack }) {
       }
       
       else if (tab === 'slides_img') {
-        fileName = `${activeDoc.title.replace('.pdf', '')}_SlidesWithImages.md`;
-        content = `# Slides with Images — ${activeDoc.title}\n\n` +
+        fileName = `${safeTitle}_SlidesWithImages.md`;
+        content = `# Slides with Images — ${safeTitle}\n\n` +
           data.map((s, idx) => {
             let slideStr = `## Slide ${idx + 1}: ${s.title}\n`;
             if (s.subtitle) slideStr += `*${s.subtitle}*\n\n`;
@@ -352,23 +364,23 @@ export default function ProjectWorkspace({ project, onBack }) {
       }
       
       else if (tab === 'infographic') {
-        fileName = `${activeDoc.title.replace('.pdf', '')}_Infographic.md`;
-        content = `# Infographic Summary — ${activeDoc.title}\n\n## ${data.title}\n*${data.subtitle || ''}*\n\n` +
+        fileName = `${safeTitle}_Infographic.md`;
+        content = `# Infographic Summary — ${safeTitle}\n\n## ${data.title}\n*${data.subtitle || ''}*\n\n` +
           `### Key Metrics\n` + (data.stats || []).map(s => `- **${s.label}**: ${s.value} (${s.desc || ''})`).join('\n') + '\n\n' +
           `### Core Sections\n` + (data.sections || []).map(s => `#### ${s.title}\n${s.summary}\n`).join('\n') + '\n' +
           (data.keyInsight ? `\n> **Core Takeaway:** ${data.keyInsight}\n` : '');
       }
       
       else if (tab === 'studyguide') {
-        fileName = `${activeDoc.title.replace('.pdf', '')}_StudyGuide.md`;
-        content = `# Study Guide & Quiz — ${activeDoc.title}\n\n## 🎴 Flashcards\n\n` +
+        fileName = `${safeTitle}_StudyGuide.md`;
+        content = `# Study Guide & Quiz — ${safeTitle}\n\n## 🎴 Flashcards\n\n` +
           (data.flashcards || []).map(f => `**Q:** ${f.question}\n**A:** ${f.answer}\n*Category:* ${f.category}\n`).join('\n---\n\n') +
           `\n## 🧩 Quiz Questions\n\n` +
           (data.quiz || []).map((q, idx) => `### Q${idx + 1}: ${q.question}\n` + (q.options || []).map((o, oi) => `  ${String.fromCharCode(65 + oi)}) ${o}`).join('\n') + `\n*Correct Answer:* Option ${String.fromCharCode(65 + q.correctIndex)}\n*Explanation:* ${q.explanation}\n`).join('\n---\n\n');
       }
 
       else if (tab === 'report') {
-        fileName = `${activeDoc.title.replace('.pdf', '')}_Report.md`;
+        fileName = `${safeTitle}_Report.md`;
         content = `# ${data.reportTitle || 'Executive Report'}\n\n**Type:** ${data.reportType || 'Detailed'}\n\n## Executive Summary\n${data.executiveSummary || ''}\n\n` +
           `## Key Findings\n` + (data.keyFindings || []).map((f, i) => `${i + 1}. ${f}`).join('\n') + '\n\n' +
           `## Detailed Sections\n` + (data.sections || []).map(s => `### ${s.title}\n${s.content}\n`).join('\n') + '\n' +
@@ -378,31 +390,31 @@ export default function ProjectWorkspace({ project, onBack }) {
       }
 
       else if (tab === 'datatable') {
-        fileName = `${activeDoc.title.replace('.pdf', '')}_DataTable.csv`;
+        fileName = `${safeTitle}_DataTable.csv`;
         const cols = data.columns || [];
         content = cols.join(',') + '\n' +
           (data.rows || []).map(row => cols.map(c => `"${String(row[c] || '').replace(/"/g, '""')}"`).join(',')).join('\n');
       }
 
       else if (tab === 'synthesis') {
-        fileName = `${activeDoc.title.replace('.pdf', '')}_Synthesis.md`;
+        fileName = `${safeTitle}_Synthesis.md`;
         content = `# Cross-Document Synthesis\n\n## ${data.synthesisTitle || 'Multi-Source Analysis'}\n\n` +
           `**Documents Analyzed:** ${(data.documentsAnalyzed || []).join(', ')}\n\n` +
           `## Common Themes\n` + (data.commonThemes || []).map(t => `### ${t.theme}\n${t.evidence}\n`).join('\n') + '\n' +
           `## Contradictions\n` + (data.contradictions || []).map(c => `- **${c.topic}**: Doc A says "${c.docA}" vs Doc B says "${c.docB}"`).join('\n') + '\n\n' +
-          `## Unique Insights\n` + (data.uniqueInsights || []).map(u => `- **${u.document}**: ${u.insight}`).join('\n') + '\n\n' +
+          `## Unique Insights\n` + (data.uniqueInsights || []).map(u => `### ${u.document}\n${u.insight}\n`).join('\n') + '\n' +
           `## Overall Synthesis\n${data.overallSynthesis || ''}\n\n` +
-          `## Recommendations\n` + (data.recommendations || []).map(r => `- ${r}`).join('\n');
+          `## Strategic Recommendations\n` + (data.recommendations || []).map(r => `- ✓ ${r}`).join('\n');
       }
     }
 
     if (!content) return;
-    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+    const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' });
     const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = fileName;
-    link.click();
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fileName;
+    a.click();
     URL.revokeObjectURL(url);
   }
 
@@ -462,7 +474,7 @@ export default function ProjectWorkspace({ project, onBack }) {
                 >
                   <span style={{ fontSize: 20 }}>📄</span>
                   <div style={{ textAlign: 'left', flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: 700, color: 'var(--text-primary)', fontSize: 14 }}>{src.title.replace('.pdf', '')}</div>
+                    <div style={{ fontWeight: 700, color: 'var(--text-primary)', fontSize: 14 }}>{cleanTitle(src)}</div>
                     <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>{src.pages} pages · {(src.words || 0).toLocaleString()} words</div>
                   </div>
                   <span style={{ color: 'var(--accent)', fontWeight: 700, fontSize: 13 }}>Select →</span>
@@ -814,7 +826,7 @@ export default function ProjectWorkspace({ project, onBack }) {
     if (activeTab === 'mindmap')    return <><div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>{contentHeader}<div style={{ flex: 1, overflow: 'hidden' }}><MindMapViewer data={artifact} /></div></div></>;
     if (activeTab === 'audio')      return <><div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>{contentHeader}<div style={{ flex: 1, overflow: 'hidden' }}><AudioPlayer script={artifact} /></div></div></>;
     if (activeTab === 'slides')     return <><div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>{contentHeader}<div style={{ flex: 1, overflow: 'hidden' }}><SlideDeckViewer slides={artifact} activeTheme={deckTheme} onThemeChange={setDeckTheme} /></div></div></>;
-    if (activeTab === 'slides_img') return <><div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>{contentHeader}<div style={{ flex: 1, overflow: 'hidden' }}><SlidesWithImagesViewer slides={artifact} docTitle={activeDoc.title.replace('.pdf', '')} activeTheme={imageSlideTheme} onThemeChange={setImageSlideTheme} /></div></div></>;
+    if (activeTab === 'slides_img') return <><div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>{contentHeader}<div style={{ flex: 1, overflow: 'hidden' }}><SlidesWithImagesViewer slides={artifact} docTitle={cleanTitle(activeDoc)} activeTheme={imageSlideTheme} onThemeChange={setImageSlideTheme} /></div></div></>;
     if (activeTab === 'infographic')return <><div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>{contentHeader}<div style={{ flex: 1, overflow: 'hidden' }}><InfographicViewer data={artifact} /></div></div></>;
     if (activeTab === 'report')     return <><div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>{contentHeader}<div style={{ flex: 1, overflow: 'hidden' }}><ReportViewer data={artifact} /></div></div></>;
     if (activeTab === 'datatable')  return <><div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>{contentHeader}<div style={{ flex: 1, overflow: 'hidden' }}><DataTableViewer data={artifact} /></div></div></>;
@@ -846,7 +858,7 @@ export default function ProjectWorkspace({ project, onBack }) {
             <>
               <span className="ws-breadcrumb-sep">/</span>
               <span style={{ color: 'var(--text-secondary)', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {activeDoc.title.replace('.pdf', '')}
+                {cleanTitle(activeDoc)}
               </span>
             </>
           )}
@@ -913,7 +925,7 @@ export default function ProjectWorkspace({ project, onBack }) {
                   >
                     <div className="ws-source-icon">📄</div>
                     <div className="ws-source-info">
-                      <div className="ws-source-name">{src.title.replace('.pdf', '')}</div>
+                      <div className="ws-source-name">{cleanTitle(src)}</div>
                       <div className="ws-source-meta">{src.pages}p · {(src.words || 0).toLocaleString()} words</div>
                     </div>
                     <button className="ws-source-del" onClick={e => { e.stopPropagation(); handleDeleteSource(src.id); }}>✕</button>

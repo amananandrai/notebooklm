@@ -75,11 +75,12 @@ class ProjectSchema(BaseModel):
 class DocumentSchema(BaseModel):
     id: str
     projectId: str
-    title: str
-    pages: int
-    words: int
-    rawText: str
-    uploadedAt: str
+    title: str = "Untitled Document"
+    pages: int = 1
+    words: int = 0
+    rawText: str = ""
+    uploadedAt: Optional[str] = None
+    createdAt: Optional[str] = None
 
 class ArtifactSchema(BaseModel):
     key: str
