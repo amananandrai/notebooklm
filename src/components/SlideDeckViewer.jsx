@@ -73,7 +73,7 @@ export default function SlideDeckViewer({ slides, activeTheme = 'clean_slate', o
 
       {/* Main Slide Card Container */}
       <div className="deck-main">
-        {/* Top Toolbar with Theme & Speaker Notes Toggle */}
+        {/* Top Toolbar */}
         <div className="deck-toolbar">
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <span style={{ fontSize: 13, fontWeight: 700, color: currentTheme.textPrimary }}>
@@ -109,7 +109,7 @@ export default function SlideDeckViewer({ slides, activeTheme = 'clean_slate', o
                   borderColor: showNotes ? currentTheme.accentBadgeBorder : currentTheme.border,
                 }}
               >
-                <span>💡</span> {showNotes ? 'Notes Visible' : 'Notes Hidden'}
+                <span>💡</span> {showNotes ? 'Speaker Notes (Visible)' : 'Speaker Notes (Hidden)'}
               </button>
             )}
 
@@ -119,7 +119,7 @@ export default function SlideDeckViewer({ slides, activeTheme = 'clean_slate', o
           </div>
         </div>
 
-        {/* Large Format Presentation Slide Card */}
+        {/* Presentation Slide Card */}
         <div
           className={`deck-card${isTitle ? ' is-title' : ''}`}
           style={{
@@ -128,12 +128,13 @@ export default function SlideDeckViewer({ slides, activeTheme = 'clean_slate', o
             boxShadow: currentTheme.cardShadow,
           }}
         >
-          <div className="deck-card-content">
+          {/* Main Slide Header & Text Body */}
+          <div className="deck-card-body">
             <h1
               className="deck-title"
               style={{
                 color: currentTheme.textPrimary,
-                fontSize: isTitle ? '34px' : '28px',
+                fontSize: isTitle ? '32px' : '26px',
               }}
             >
               {slide.title}
@@ -172,39 +173,39 @@ export default function SlideDeckViewer({ slides, activeTheme = 'clean_slate', o
                 ))}
               </ul>
             )}
-
-            {/* Toggleable Speaker Notes Drawer */}
-            {showNotes && slide.speakerNotes && (
-              <div
-                className="deck-notes-drawer"
-                style={{
-                  background: currentTheme.notesBg,
-                  borderColor: currentTheme.border,
-                  color: currentTheme.textSecondary,
-                }}
-              >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, paddingBottom: 6, borderBottom: `1px solid ${currentTheme.border}` }}>
-                  <span style={{ color: currentTheme.accent, fontSize: 13, fontWeight: 800, display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <span>💡</span> Speaker Notes
-                  </span>
-                  <button
-                    onClick={() => setShowNotes(false)}
-                    style={{
-                      background: 'none', border: 'none', color: currentTheme.textMuted,
-                      cursor: 'pointer', fontSize: 13, padding: '2px 6px', borderRadius: 4,
-                      fontWeight: 700,
-                    }}
-                    title="Hide notes"
-                  >
-                    ✕
-                  </button>
-                </div>
-                <div style={{ fontSize: 14, lineHeight: 1.7, color: currentTheme.textSecondary }}>
-                  {slide.speakerNotes}
-                </div>
-              </div>
-            )}
           </div>
+
+          {/* Fully Integrated Speaker Notes Drawer inside Slide Card */}
+          {showNotes && slide.speakerNotes && (
+            <div
+              className="deck-notes-drawer"
+              style={{
+                background: currentTheme.notesBg,
+                borderColor: currentTheme.border,
+                color: currentTheme.textSecondary,
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, paddingBottom: 6, borderBottom: `1px solid ${currentTheme.border}` }}>
+                <span style={{ color: currentTheme.accent, fontSize: 12, fontWeight: 800, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span>💡</span> Speaker Notes
+                </span>
+                <button
+                  onClick={() => setShowNotes(false)}
+                  style={{
+                    background: 'none', border: 'none', color: currentTheme.textMuted,
+                    cursor: 'pointer', fontSize: 13, padding: '2px 6px', borderRadius: 4,
+                    fontWeight: 700,
+                  }}
+                  title="Hide notes"
+                >
+                  ✕
+                </button>
+              </div>
+              <div style={{ fontSize: 14, lineHeight: 1.7, color: currentTheme.textSecondary }}>
+                {slide.speakerNotes}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Navigation Bar */}
