@@ -129,17 +129,6 @@ export default function SlideDeckViewer({ slides, activeTheme = 'clean_slate', o
           }}
         >
           <div className="deck-card-content">
-            <div
-              className="deck-badge"
-              style={{
-                background: currentTheme.accentBadgeBg,
-                color: currentTheme.accent,
-                borderColor: currentTheme.accentBadgeBorder,
-              }}
-            >
-              {isTitle ? 'Title Slide' : `Slide ${current + 1}`}
-            </div>
-
             <h1
               className="deck-title"
               style={{
@@ -191,23 +180,26 @@ export default function SlideDeckViewer({ slides, activeTheme = 'clean_slate', o
                 style={{
                   background: currentTheme.notesBg,
                   borderColor: currentTheme.border,
-                  color: currentTheme.textMuted,
+                  color: currentTheme.textSecondary,
                 }}
               >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                  <strong style={{ color: currentTheme.accent, fontSize: 12 }}>💡 Speaker Notes</strong>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, paddingBottom: 6, borderBottom: `1px solid ${currentTheme.border}` }}>
+                  <span style={{ color: currentTheme.accent, fontSize: 13, fontWeight: 800, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span>💡</span> Speaker Notes
+                  </span>
                   <button
                     onClick={() => setShowNotes(false)}
                     style={{
                       background: 'none', border: 'none', color: currentTheme.textMuted,
-                      cursor: 'pointer', fontSize: 12, padding: '2px 4px',
+                      cursor: 'pointer', fontSize: 13, padding: '2px 6px', borderRadius: 4,
+                      fontWeight: 700,
                     }}
                     title="Hide notes"
                   >
                     ✕
                   </button>
                 </div>
-                <div style={{ fontSize: 13, lineHeight: 1.6, color: currentTheme.textSecondary }}>
+                <div style={{ fontSize: 14, lineHeight: 1.7, color: currentTheme.textSecondary }}>
                   {slide.speakerNotes}
                 </div>
               </div>
