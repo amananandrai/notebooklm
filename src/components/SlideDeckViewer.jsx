@@ -4,6 +4,7 @@ import { DECK_THEMES } from '../utils/themes';
 export default function SlideDeckViewer({ slides, activeTheme = 'clean_slate', onThemeChange }) {
   const [current, setCurrent] = useState(0);
   const [themeId, setThemeId] = useState(activeTheme);
+  const [showNotes, setShowNotes] = useState(false);
   const list = Array.isArray(slides) ? slides : [];
   const slide = list[current];
 
@@ -72,9 +73,9 @@ export default function SlideDeckViewer({ slides, activeTheme = 'clean_slate', o
 
       {/* Main Slide Card Container */}
       <div className="deck-main">
-        {/* Top Toolbar */}
+        {/* Top Toolbar with Theme & Speaker Notes Toggle */}
         <div className="deck-toolbar">
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <span style={{ fontSize: 13, fontWeight: 700, color: currentTheme.textPrimary }}>
               {currentTheme.icon} {currentTheme.name}
             </span>
@@ -82,7 +83,7 @@ export default function SlideDeckViewer({ slides, activeTheme = 'clean_slate', o
               style={{
                 fontSize: 10,
                 fontWeight: 700,
-                padding: '2px 8px',
+                padding: '3px 9px',
                 borderRadius: 99,
                 background: currentTheme.accentBadgeBg,
                 color: currentTheme.accent,
@@ -94,12 +95,31 @@ export default function SlideDeckViewer({ slides, activeTheme = 'clean_slate', o
             </span>
           </div>
 
-          <span style={{ fontSize: 12, fontWeight: 600, color: currentTheme.textMuted }}>
-            {current + 1} of {list.length}
-          </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            {/* Speaker Notes Toggle Button */}
+            {slide.speakerNotes && (
+              <button
+                type="button"
+                className={`deck-notes-toggle-btn${showNotes ? ' active' : ''}`}
+                onClick={() => setShowNotes(prev => !prev)}
+                title={showNotes ? 'Hide speaker notes' : 'Show speaker notes'}
+                style={{
+                  background: showNotes ? currentTheme.accentBadgeBg : currentTheme.cardBg,
+                  color: showNotes ? currentTheme.accent : currentTheme.textMuted,
+                  borderColor: showNotes ? currentTheme.accentBadgeBorder : currentTheme.border,
+                }}
+              >
+                <span>💡</span> {showNotes ? 'Notes Visible' : 'Notes Hidden'}
+              </button>
+            )}
+
+            <span style={{ fontSize: 12, fontWeight: 700, color: currentTheme.textMuted }}>
+              {current + 1} of {list.length}
+            </span>
+          </div>
         </div>
 
-        {/* Presentation Slide Card */}
+        {/* Large Format Presentation Slide Card */}
         <div
           className={`deck-card${isTitle ? ' is-title' : ''}`}
           style={{
@@ -122,7 +142,10 @@ export default function SlideDeckViewer({ slides, activeTheme = 'clean_slate', o
 
             <h1
               className="deck-title"
-              style={{ color: currentTheme.textPrimary }}
+              style={{
+                color: currentTheme.textPrimary,
+                fontSize: isTitle ? '34px' : '28px',
+              }}
             >
               {slide.title}
             </h1>
@@ -161,7 +184,8 @@ export default function SlideDeckViewer({ slides, activeTheme = 'clean_slate', o
               </ul>
             )}
 
-            {slide.speakerNotes && (
+            {/* Toggleable Speaker Notes Drawer */}
+            {showNotes && slide.speakerNotes && (
               <div
                 className="deck-notes-drawer"
                 style={{
@@ -170,7 +194,22 @@ export default function SlideDeckViewer({ slides, activeTheme = 'clean_slate', o
                   color: currentTheme.textMuted,
                 }}
               >
-                <strong style={{ color: currentTheme.accent }}>💡 Speaker Notes:</strong> {slide.speakerNotes}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                  <strong style={{ color: currentTheme.accent, fontSize: 12 }}>💡 Speaker Notes</strong>
+                  <button
+                    onClick={() => setShowNotes(false)}
+                    style={{
+                      background: 'none', border: 'none', color: currentTheme.textMuted,
+                      cursor: 'pointer', fontSize: 12, padding: '2px 4px',
+                    }}
+                    title="Hide notes"
+                  >
+                    ✕
+                  </button>
+                </div>
+                <div style={{ fontSize: 13, lineHeight: 1.6, color: currentTheme.textSecondary }}>
+                  {slide.speakerNotes}
+                </div>
               </div>
             )}
           </div>
