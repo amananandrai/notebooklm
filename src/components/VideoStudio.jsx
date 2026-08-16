@@ -9,7 +9,9 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { BokehPass } from 'three/examples/jsm/postprocessing/BokehPass.js';
-
+import { FilmPass } from 'three/examples/jsm/postprocessing/FilmPass.js';
+import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
+import { VignetteShader } from 'three/examples/jsm/shaders/VignetteShader.js';
 // Studio Module Imports
 import { MAT, rand } from './studio/materials.js';
 import { addMesh, createBox, createCylinder } from './studio/helpers.js';
@@ -766,6 +768,7 @@ export default function VideoStudio({ slides, script }) {
     renderer.toneMappingExposure = 1.15;
     renderer.setSize(width, height);
     renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     container.appendChild(renderer.domElement);
     rendererRef.current = renderer;
 
@@ -774,19 +777,29 @@ export default function VideoStudio({ slides, script }) {
     composer.addPass(renderPass);
 
     const bloomPass = new UnrealBloomPass(new THREE.Vector2(width, height), 1.5, 0.4, 0.85);
-    bloomPass.threshold = 2.0;
-    bloomPass.strength = 0.14;
-    bloomPass.radius = 0.38;
+    bloomPass.threshold = 1.6;
+    bloomPass.strength = 0.18;
+    bloomPass.radius = 0.55;
     composer.addPass(bloomPass);
 
     const bokehPass = new BokehPass(scene, camera, {
       focus: 5.0,
-      aperture: 0.00008,
-      maxblur: 0.005,
+      aperture: 0.00015,
+      maxblur: 0.008,
       width: width,
       height: height
     });
     composer.addPass(bokehPass);
+
+    // Film Grain (makes the image look slightly noisy and cinematic)
+    const filmPass = new FilmPass(0.25, false); // intensity, grayscale
+    composer.addPass(filmPass);
+
+    // Vignette (darkens corners)
+    const vignettePass = new ShaderPass(VignetteShader);
+    vignettePass.uniforms['offset'].value = 1.0;
+    vignettePass.uniforms['darkness'].value = 1.25;
+    composer.addPass(vignettePass);
 
     const outputPass = new OutputPass();
     composer.addPass(outputPass);
@@ -810,10 +823,10 @@ export default function VideoStudio({ slides, script }) {
     scene.add(decorRoot);
 
     // Hero Tropical Strelitzia in Concrete Pot
-    const heroPlant = createHeroPlant(scene, -3.4, -1.35, 0.95);
+    const heroPlant = createHeroPlant(scene, -2.95, -1.05, 0.95);
 
     // Shelving Units
-    const leftShelf = createDetailedShelf(decorRoot, -3.85, -2.35, 'left');
+    const leftShelf = createDetailedShelf(decorRoot, -4.3, -2.35, 'left');
     const rightShelf = createDetailedShelf(decorRoot, 3.85, -2.35, 'right');
 
     // Table Props (Matte black mugs, succulent dish, notebooks)
@@ -981,9 +994,9 @@ export default function VideoStudio({ slides, script }) {
          }
       }
       
-      // Camera Breathing (handheld feel)
-      const handheldOffsetX = Math.sin(time * 0.4) * 0.001;
-      const handheldOffsetY = Math.cos(time * 0.5) * 0.001;
+      // Camera Breathing (handheld documentary feel)
+      const handheldOffsetX = Math.sin(time * 0.4) * 0.002 + Math.cos(time * 1.1) * 0.001;
+      const handheldOffsetY = Math.cos(time * 0.5) * 0.002 + Math.sin(time * 1.3) * 0.001;
       camera.position.x += handheldOffsetX;
       camera.position.y += handheldOffsetY;
 

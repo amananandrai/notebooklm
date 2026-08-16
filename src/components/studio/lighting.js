@@ -10,17 +10,17 @@ export function setupLighting(scene) {
   scene.add(ambientLight);
 
   // 3. Cinematic Key Light (Soft Warm, 45 degrees focused on hosts)
-  const keyLight = new THREE.SpotLight(0xFFECD6, 3.8);
+  const keyLight = new THREE.SpotLight(0xFFECD6, 4.5);
   keyLight.position.set(-2.2, 4.5, 4.0);
   keyLight.target.position.set(0, 1.1, 0.5);
   keyLight.angle = Math.PI / 4.2;
   keyLight.penumbra = 0.95;
   keyLight.decay = 1.4;
   keyLight.castShadow = true;
-  keyLight.shadow.mapSize.width = 1024;
-  keyLight.shadow.mapSize.height = 1024;
-  keyLight.shadow.bias = -0.001;
-  keyLight.shadow.radius = 6;
+  keyLight.shadow.mapSize.width = 2048;
+  keyLight.shadow.mapSize.height = 2048;
+  keyLight.shadow.bias = -0.0005;
+  keyLight.shadow.radius = 8;
   scene.add(keyLight, keyLight.target);
 
   // 4. Soft Fill Light (Subtle Cool Tone opposite Key)

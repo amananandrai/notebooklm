@@ -112,8 +112,8 @@ export function createMic(scene, x, z, rotY, targetLookAtX = 0) {
 
 export function setupMicrophones(scene) {
   // Clamped at desk front edge, angled directly toward Host A and Host B
-  const micMatA = createMic(scene, -0.42, 0.45, -Math.PI / 8);
-  const micMatB = createMic(scene, 0.42, 0.45, Math.PI / 8);
+  const micMatA = createMic(scene, -0.42, 0.45, Math.PI / 4.5);
+  const micMatB = createMic(scene, 0.42, 0.45, -Math.PI / 4.5);
 
   return { a: micMatA, b: micMatB };
 }

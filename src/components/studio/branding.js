@@ -55,12 +55,12 @@ export function setupBranding(scene) {
   });
 
   const signMesh = new THREE.Mesh(new THREE.PlaneGeometry(1.6, 1.2), signMat);
-  signMesh.position.set(-4.55, 2.75, -2.43);
+  signMesh.position.set(-5.35, 2.75, -2.43);
   scene.add(signMesh);
 
   // Soft localized cyan point light casting glow onto the wooden slats
   const signGlow = new THREE.PointLight(0x23D5FF, 0.85, 2.8, 1.5);
-  signGlow.position.set(-4.55, 2.75, -2.3);
+  signGlow.position.set(-5.35, 2.75, -2.3);
   scene.add(signGlow);
 
   return signMesh;
