@@ -1,13 +1,13 @@
 import { useState } from 'react';
-import { SLIDE_THEMES } from '../utils/themes';
+import { DECK_THEMES } from '../utils/themes';
 
-export default function SlideDeckViewer({ slides, activeTheme = 'light_slate', onThemeChange }) {
+export default function SlideDeckViewer({ slides, activeTheme = 'clean_slate', onThemeChange }) {
   const [current, setCurrent] = useState(0);
   const [themeId, setThemeId] = useState(activeTheme);
   const list = Array.isArray(slides) ? slides : [];
   const slide = list[current];
 
-  const currentTheme = SLIDE_THEMES[themeId] || SLIDE_THEMES.light_slate;
+  const currentTheme = DECK_THEMES[themeId] || DECK_THEMES.clean_slate;
 
   const handleSelectTheme = (tId) => {
     setThemeId(tId);
@@ -19,37 +19,32 @@ export default function SlideDeckViewer({ slides, activeTheme = 'light_slate', o
   const isTitle = slide.type === 'title';
 
   return (
-    <div className="slides-layout" style={{ background: currentTheme.bg }}>
-      {/* Thumbnail sidebar */}
+    <div className="deck-layout" style={{ background: currentTheme.bg }}>
+      {/* Thumbnail Sidebar */}
       <div
-        className="slides-sidebar"
+        className="deck-sidebar"
         style={{
           background: currentTheme.cardBg,
           borderColor: currentTheme.border,
-          color: currentTheme.textPrimary,
         }}
       >
-        <div style={{ padding: '12px 14px', borderBottom: `1px solid ${currentTheme.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div className="deck-sidebar-header" style={{ borderBottomColor: currentTheme.border }}>
           <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: currentTheme.textMuted }}>
             {list.length} Slides
           </span>
-          {/* Live Theme Picker */}
+
+          {/* Dedicated Deck Theme Switcher */}
           <select
             value={themeId}
             onChange={(e) => handleSelectTheme(e.target.value)}
+            className="deck-theme-select"
             style={{
-              padding: '4px 8px',
-              fontSize: 11,
-              fontWeight: 600,
-              borderRadius: 6,
-              border: `1px solid ${currentTheme.border}`,
+              borderColor: currentTheme.border,
               background: currentTheme.bg,
               color: currentTheme.textPrimary,
-              cursor: 'pointer',
-              outline: 'none',
             }}
           >
-            {Object.values(SLIDE_THEMES).map((t) => (
+            {Object.values(DECK_THEMES).map((t) => (
               <option key={t.id} value={t.id}>
                 {t.icon} {t.name}
               </option>
@@ -57,59 +52,84 @@ export default function SlideDeckViewer({ slides, activeTheme = 'light_slate', o
           </select>
         </div>
 
-        <div style={{ flex: 1, overflowY: 'auto', padding: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <div className="deck-thumb-list">
           {list.map((s, i) => (
             <div
               key={i}
-              className={`slide-thumb${i === current ? ' active' : ''}`}
+              className={`deck-thumb${i === current ? ' active' : ''}`}
               style={{
                 borderColor: i === current ? currentTheme.accent : currentTheme.border,
                 background: i === current ? currentTheme.accentBadgeBg : 'transparent',
-                color: i === current ? currentTheme.accent : currentTheme.textPrimary,
               }}
               onClick={() => setCurrent(i)}
             >
-              <div className="slide-thumb-num" style={{ color: currentTheme.textMuted }}>Slide {i + 1}</div>
-              <div className="slide-thumb-title" style={{ color: currentTheme.textPrimary }}>{s.title}</div>
+              <div className="deck-thumb-num" style={{ color: currentTheme.textMuted }}>Slide {i + 1}</div>
+              <div className="deck-thumb-title" style={{ color: currentTheme.textPrimary }}>{s.title}</div>
             </div>
           ))}
         </div>
       </div>
 
-      {/* Slide main canvas */}
-      <div className="slide-main" style={{ background: currentTheme.bg }}>
+      {/* Main Slide Card Container */}
+      <div className="deck-main">
+        {/* Top Toolbar */}
+        <div className="deck-toolbar">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 13, fontWeight: 700, color: currentTheme.textPrimary }}>
+              {currentTheme.icon} {currentTheme.name}
+            </span>
+            <span
+              style={{
+                fontSize: 10,
+                fontWeight: 700,
+                padding: '2px 8px',
+                borderRadius: 99,
+                background: currentTheme.accentBadgeBg,
+                color: currentTheme.accent,
+                border: `1px solid ${currentTheme.accentBadgeBorder}`,
+                textTransform: 'uppercase',
+              }}
+            >
+              {currentTheme.badge}
+            </span>
+          </div>
+
+          <span style={{ fontSize: 12, fontWeight: 600, color: currentTheme.textMuted }}>
+            {current + 1} of {list.length}
+          </span>
+        </div>
+
+        {/* Presentation Slide Card */}
         <div
-          className={`slide-card${isTitle ? ' title-slide' : ''}`}
+          className={`deck-card${isTitle ? ' is-title' : ''}`}
           style={{
-            width: '100%',
-            maxWidth: 760,
             background: currentTheme.cardBg,
             borderColor: currentTheme.border,
-            boxShadow: `0 8px 32px ${currentTheme.accent}15`,
+            boxShadow: currentTheme.cardShadow,
           }}
         >
-          <div className="slide-card-inner">
+          <div className="deck-card-content">
             <div
-              className="slide-number"
+              className="deck-badge"
               style={{
                 background: currentTheme.accentBadgeBg,
                 color: currentTheme.accent,
                 borderColor: currentTheme.accentBadgeBorder,
               }}
             >
-              Slide {current + 1} of {list.length}
+              {isTitle ? 'Title Slide' : `Slide ${current + 1}`}
             </div>
 
-            <div
-              className="slide-title-text"
+            <h1
+              className="deck-title"
               style={{ color: currentTheme.textPrimary }}
             >
               {slide.title}
-            </div>
+            </h1>
 
             {slide.subtitle && (
               <div
-                className="slide-subtitle-text"
+                className="deck-subtitle"
                 style={{ color: currentTheme.textSecondary }}
               >
                 {slide.subtitle}
@@ -117,20 +137,25 @@ export default function SlideDeckViewer({ slides, activeTheme = 'light_slate', o
             )}
 
             <div
-              className="slide-divider"
+              className="deck-divider"
               style={{ background: `linear-gradient(90deg, ${currentTheme.accent}, transparent)` }}
             />
 
             {slide.bullets?.length > 0 && (
-              <ul className="slide-bullets">
+              <ul className="deck-bullets">
                 {slide.bullets.map((b, i) => (
                   <li
                     key={i}
-                    className="slide-bullet"
+                    className="deck-bullet-item"
                     style={{ color: currentTheme.textSecondary }}
                   >
-                    <span style={{ color: currentTheme.accent, marginRight: 8, fontWeight: 700 }}>•</span>
-                    {b}
+                    <span
+                      className="deck-bullet-bullet"
+                      style={{ color: currentTheme.bulletColor || currentTheme.accent }}
+                    >
+                      •
+                    </span>
+                    <span>{b}</span>
                   </li>
                 ))}
               </ul>
@@ -138,35 +163,57 @@ export default function SlideDeckViewer({ slides, activeTheme = 'light_slate', o
 
             {slide.speakerNotes && (
               <div
-                className="slide-notes"
+                className="deck-notes-drawer"
                 style={{
-                  background: currentTheme.bg,
+                  background: currentTheme.notesBg,
                   borderColor: currentTheme.border,
                   color: currentTheme.textMuted,
                 }}
               >
-                <strong style={{ color: currentTheme.accent }}>Speaker Notes:</strong> {slide.speakerNotes}
+                <strong style={{ color: currentTheme.accent }}>💡 Speaker Notes:</strong> {slide.speakerNotes}
               </div>
             )}
           </div>
         </div>
 
-        {/* Navigation */}
-        <div className="slides-nav">
+        {/* Navigation Bar */}
+        <div className="deck-nav">
           <button
-            className="slides-nav-btn"
+            className="deck-nav-btn"
             onClick={() => setCurrent(c => Math.max(0, c - 1))}
             disabled={current === 0}
+            style={{
+              background: currentTheme.cardBg,
+              color: currentTheme.textPrimary,
+              borderColor: currentTheme.border,
+            }}
           >
-            ← Prev
+            ← Previous
           </button>
-          <span className="slides-counter" style={{ color: currentTheme.textMuted }}>
-            {current + 1} / {list.length}
-          </span>
+
+          <div className="deck-dots">
+            {list.map((_, idx) => (
+              <button
+                key={idx}
+                className={`deck-dot${idx === current ? ' active' : ''}`}
+                style={{
+                  background: idx === current ? currentTheme.accent : currentTheme.border,
+                }}
+                onClick={() => setCurrent(idx)}
+                title={`Go to slide ${idx + 1}`}
+              />
+            ))}
+          </div>
+
           <button
-            className="slides-nav-btn"
+            className="deck-nav-btn"
             onClick={() => setCurrent(c => Math.min(list.length - 1, c + 1))}
             disabled={current === list.length - 1}
+            style={{
+              background: currentTheme.cardBg,
+              color: currentTheme.textPrimary,
+              borderColor: currentTheme.border,
+            }}
           >
             Next →
           </button>

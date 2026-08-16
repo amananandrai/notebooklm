@@ -14,7 +14,7 @@ import HyperFramesStudio from '../video/HyperFramesStudio';
 import ReportViewer from './ReportViewer';
 import DataTableViewer from './DataTableViewer';
 import NotesPanel from './NotesPanel';
-import { SLIDE_THEMES, SLIDE_COUNTS, AUDIO_LENGTHS, AUDIO_TONES } from '../utils/themes';
+import { DECK_THEMES, IMAGE_SLIDE_THEMES, SLIDE_COUNTS, AUDIO_LENGTHS, AUDIO_TONES } from '../utils/themes';
 
 const MCP_ENDPOINT = window.location.origin.includes('5173') || window.location.origin.includes('localhost')
   ? 'http://127.0.0.1:8080/mcp'
@@ -28,33 +28,30 @@ async function callMCP(toolName, args) {
     params: { name: toolName, arguments: args },
   };
 
-  const response = await fetch(MCP_ENDPOINT, {
+  const res = await fetch(MCP_ENDPOINT, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   });
 
-  if (!response.ok) {
-    throw new Error(`MCP request failed: ${response.statusText}`);
+  if (!res.ok) {
+    throw new Error(`MCP HTTP error ${res.status}: ${res.statusText}`);
   }
 
-  const json = await response.json();
+  const json = await res.json();
   if (json.error) {
-    throw new Error(json.error.message || 'MCP tool call error');
+    throw new Error(json.error.message || 'MCP Error');
   }
 
-  const textContent = json.result?.content?.find(c => c.type === 'text')?.text;
+  const textContent = json.result?.content?.[0]?.text;
   if (!textContent) {
-    throw new Error('Empty response from MCP tool');
+    throw new Error('Empty response from MCP server');
   }
 
-  try {
-    return JSON.parse(textContent);
-  } catch {
-    return textContent;
-  }
+  return JSON.parse(textContent);
 }
 
+// ── Tab configuration ──────────────────────────────────────────
 const TABS = [
   { id: 'mindmap',     label: 'Mind Map',     icon: '🧠' },
   { id: 'audio',       label: 'Audio',        icon: '🎙️' },
@@ -90,10 +87,17 @@ export default function ProjectWorkspace({ project, onBack }) {
   const [activeDocId, setActiveDocId] = useState(() => sources[0]?.id || null);
   const [activeTab, setActiveTab]     = useState('mindmap');
   const [sidebarTab, setSidebarTab]   = useState('sources'); // 'sources' | 'notes'
-  const [slideCount, setSlideCount]   = useState(7);
-  const [slideTheme, setSlideTheme]   = useState('light_slate');
-  const [audioLength, setAudioLength] = useState('standard');
-  const [audioTone, setAudioTone]     = useState('casual');
+  
+  // Decoupled generation configs:
+  const [deckSlideCount, setDeckSlideCount]   = useState(7);
+  const [deckTheme, setDeckTheme]             = useState('clean_slate');
+  
+  const [imageSlideCount, setImageSlideCount] = useState(7);
+  const [imageSlideTheme, setImageSlideTheme] = useState('light_slate');
+  
+  const [audioLength, setAudioLength]         = useState('standard');
+  const [audioTone, setAudioTone]             = useState('casual');
+  
   const [artifacts, setArtifacts]     = useState({}); // { `${docId}_${tab}`: data }
   const [generating, setGenerating]   = useState({}); // { `${docId}_${tab}`: bool }
   const [genError, setGenError]       = useState({}); // { `${docId}_${tab}`: string }
@@ -257,8 +261,8 @@ export default function ProjectWorkspace({ project, onBack }) {
         const args = {
           documentTitle: doc.title,
           rawText: doc.rawText,
-          slideCount,
-          theme: slideTheme,
+          slideCount: tab === 'slides' ? deckSlideCount : imageSlideCount,
+          theme: tab === 'slides' ? deckTheme : imageSlideTheme,
           audioLength,
           audioTone,
         };
@@ -589,8 +593,8 @@ export default function ProjectWorkspace({ project, onBack }) {
             {meta.desc}
           </div>
 
-          {/* Dynamic Slide Deck Options */}
-          {(activeTab === 'slides' || activeTab === 'slides_img') && (
+          {/* Dynamic Options for Text Slides */}
+          {activeTab === 'slides' && (
             <div className="ws-gen-options-panel">
               {/* Slide Count Selector */}
               <div className="ws-gen-opt-group">
@@ -600,8 +604,8 @@ export default function ProjectWorkspace({ project, onBack }) {
                     <button
                       key={sc.id}
                       type="button"
-                      className={`ws-gen-pill${slideCount === sc.id ? ' active' : ''}`}
-                      onClick={() => setSlideCount(sc.id)}
+                      className={`ws-gen-pill${deckSlideCount === sc.id ? ' active' : ''}`}
+                      onClick={() => setDeckSlideCount(sc.id)}
                     >
                       <span className="ws-gen-pill-title">{sc.label}</span>
                       <span className="ws-gen-pill-badge">{sc.badge}</span>
@@ -613,24 +617,80 @@ export default function ProjectWorkspace({ project, onBack }) {
                       type="number"
                       min={3}
                       max={16}
-                      value={slideCount}
-                      onChange={e => setSlideCount(Math.max(3, Math.min(16, Number(e.target.value) || 7)))}
+                      value={deckSlideCount}
+                      onChange={e => setDeckSlideCount(Math.max(3, Math.min(16, Number(e.target.value) || 7)))}
                       className="ws-gen-num-input"
                     />
                   </div>
                 </div>
               </div>
 
-              {/* Visual Theme Selector */}
+              {/* Deck Layout & Typography Style */}
               <div className="ws-gen-opt-group">
-                <div className="ws-gen-opt-label">🎨 Visual Design Theme:</div>
+                <div className="ws-gen-opt-label">🎨 Deck Card Style:</div>
                 <div className="ws-gen-pill-row">
-                  {Object.values(SLIDE_THEMES).map(t => (
+                  {Object.values(DECK_THEMES).map(t => (
                     <button
                       key={t.id}
                       type="button"
-                      className={`ws-gen-theme-pill${slideTheme === t.id ? ' active' : ''}`}
-                      onClick={() => setSlideTheme(t.id)}
+                      className={`ws-gen-theme-pill${deckTheme === t.id ? ' active' : ''}`}
+                      onClick={() => setDeckTheme(t.id)}
+                      style={{
+                        '--theme-accent': t.accent,
+                        '--theme-bg': t.bg,
+                      }}
+                    >
+                      <span className="ws-gen-theme-icon">{t.icon}</span>
+                      <span className="ws-gen-theme-name">{t.name}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Dynamic Options for Visual Slides + AI Images */}
+          {activeTab === 'slides_img' && (
+            <div className="ws-gen-options-panel">
+              {/* Slide Count Selector */}
+              <div className="ws-gen-opt-group">
+                <div className="ws-gen-opt-label">🖼️ Number of Visual Slides:</div>
+                <div className="ws-gen-pill-row">
+                  {SLIDE_COUNTS.map(sc => (
+                    <button
+                      key={sc.id}
+                      type="button"
+                      className={`ws-gen-pill${imageSlideCount === sc.id ? ' active' : ''}`}
+                      onClick={() => setImageSlideCount(sc.id)}
+                    >
+                      <span className="ws-gen-pill-title">{sc.label}</span>
+                      <span className="ws-gen-pill-badge">{sc.badge}</span>
+                    </button>
+                  ))}
+                  <div className="ws-gen-custom-count">
+                    <span>Custom:</span>
+                    <input
+                      type="number"
+                      min={3}
+                      max={16}
+                      value={imageSlideCount}
+                      onChange={e => setImageSlideCount(Math.max(3, Math.min(16, Number(e.target.value) || 7)))}
+                      className="ws-gen-num-input"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Visual AI Scene Theme */}
+              <div className="ws-gen-opt-group">
+                <div className="ws-gen-opt-label">🎨 AI Image & 16:9 Canvas Theme:</div>
+                <div className="ws-gen-pill-row">
+                  {Object.values(IMAGE_SLIDE_THEMES).map(t => (
+                    <button
+                      key={t.id}
+                      type="button"
+                      className={`ws-gen-theme-pill${imageSlideTheme === t.id ? ' active' : ''}`}
+                      onClick={() => setImageSlideTheme(t.id)}
                       style={{
                         '--theme-accent': t.accent,
                         '--theme-bg': t.bg,
@@ -753,8 +813,8 @@ export default function ProjectWorkspace({ project, onBack }) {
 
     if (activeTab === 'mindmap')    return <><div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>{contentHeader}<div style={{ flex: 1, overflow: 'hidden' }}><MindMapViewer data={artifact} /></div></div></>;
     if (activeTab === 'audio')      return <><div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>{contentHeader}<div style={{ flex: 1, overflow: 'hidden' }}><AudioPlayer script={artifact} /></div></div></>;
-    if (activeTab === 'slides')     return <><div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>{contentHeader}<div style={{ flex: 1, overflow: 'hidden' }}><SlideDeckViewer slides={artifact} activeTheme={slideTheme} onThemeChange={setSlideTheme} /></div></div></>;
-    if (activeTab === 'slides_img') return <><div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>{contentHeader}<div style={{ flex: 1, overflow: 'hidden' }}><SlidesWithImagesViewer slides={artifact} docTitle={activeDoc.title.replace('.pdf', '')} activeTheme={slideTheme} onThemeChange={setSlideTheme} /></div></div></>;
+    if (activeTab === 'slides')     return <><div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>{contentHeader}<div style={{ flex: 1, overflow: 'hidden' }}><SlideDeckViewer slides={artifact} activeTheme={deckTheme} onThemeChange={setDeckTheme} /></div></div></>;
+    if (activeTab === 'slides_img') return <><div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>{contentHeader}<div style={{ flex: 1, overflow: 'hidden' }}><SlidesWithImagesViewer slides={artifact} docTitle={activeDoc.title.replace('.pdf', '')} activeTheme={imageSlideTheme} onThemeChange={setImageSlideTheme} /></div></div></>;
     if (activeTab === 'infographic')return <><div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>{contentHeader}<div style={{ flex: 1, overflow: 'hidden' }}><InfographicViewer data={artifact} /></div></div></>;
     if (activeTab === 'report')     return <><div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>{contentHeader}<div style={{ flex: 1, overflow: 'hidden' }}><ReportViewer data={artifact} /></div></div></>;
     if (activeTab === 'datatable')  return <><div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>{contentHeader}<div style={{ flex: 1, overflow: 'hidden' }}><DataTableViewer data={artifact} /></div></div></>;

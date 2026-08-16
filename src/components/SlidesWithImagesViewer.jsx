@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { SLIDE_THEMES } from '../utils/themes';
+import { IMAGE_SLIDE_THEMES } from '../utils/themes';
 
 // ── Image loader: fetch a URL and return a base64 data URI ──────────────────
 async function urlToBase64(url) {
@@ -19,7 +19,7 @@ async function urlToBase64(url) {
 
 // ── PDF download via jsPDF with active theme colors ─────────────────────────
 async function downloadPDF(slides, docTitle, activeTheme) {
-  const theme = SLIDE_THEMES[activeTheme] || SLIDE_THEMES.light_slate;
+  const theme = IMAGE_SLIDE_THEMES[activeTheme] || IMAGE_SLIDE_THEMES.light_slate;
   const { jsPDF } = await import('jspdf');
   const W = 297, H = 167.0625; // A4 landscape in mm (16:9)
   const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: [W, H] });
@@ -97,7 +97,7 @@ async function downloadPDF(slides, docTitle, activeTheme) {
 
 // ── PPTX download via pptxgenjs with active theme colors ────────────────────
 async function downloadPPTX(slides, docTitle, activeTheme) {
-  const theme = SLIDE_THEMES[activeTheme] || SLIDE_THEMES.light_slate;
+  const theme = IMAGE_SLIDE_THEMES[activeTheme] || IMAGE_SLIDE_THEMES.light_slate;
   const pptxgen = (await import('pptxgenjs')).default;
   const prs = new pptxgen();
   prs.layout = 'LAYOUT_WIDE'; // 16:9
@@ -169,7 +169,7 @@ export default function SlidesWithImagesViewer({ slides, docTitle, activeTheme =
 
   const list = Array.isArray(slides) ? slides : [];
   const slide = list[current];
-  const currentTheme = SLIDE_THEMES[themeId] || SLIDE_THEMES.light_slate;
+  const currentTheme = IMAGE_SLIDE_THEMES[themeId] || IMAGE_SLIDE_THEMES.light_slate;
 
   const handleSelectTheme = (tId) => {
     setThemeId(tId);
@@ -227,7 +227,7 @@ export default function SlidesWithImagesViewer({ slides, docTitle, activeTheme =
               outline: 'none',
             }}
           >
-            {Object.values(SLIDE_THEMES).map(t => (
+            {Object.values(IMAGE_SLIDE_THEMES).map(t => (
               <option key={t.id} value={t.id}>
                 {t.icon} {t.name}
               </option>

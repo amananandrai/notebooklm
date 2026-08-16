@@ -1,11 +1,92 @@
-// Theme Definitions for NotebookLM Studio Slides & Visuals
+// Decoupled Theme Definitions for NotebookLM Studio Slides & Slides with Images
 
-export const SLIDE_THEMES = {
+// ── 1. Text Deck Themes (Tailored for Clean Typography & Structured Content) ──
+export const DECK_THEMES = {
+  clean_slate: {
+    id: 'clean_slate',
+    name: 'Clean Minimalist',
+    icon: '📄',
+    badge: 'Standard',
+    bg: '#f8fafc',
+    cardBg: '#ffffff',
+    border: 'rgba(15, 23, 42, 0.09)',
+    cardShadow: '0 4px 24px rgba(15, 23, 42, 0.05)',
+    textPrimary: '#0f172a',
+    textSecondary: '#334155',
+    textMuted: '#64748b',
+    accent: '#2563eb',
+    accentLit: '#3b82f6',
+    accentBadgeBg: 'rgba(37, 99, 235, 0.08)',
+    accentBadgeBorder: 'rgba(37, 99, 235, 0.2)',
+    bulletColor: '#2563eb',
+    notesBg: '#f1f5f9',
+  },
+  modern_purple: {
+    id: 'modern_purple',
+    name: 'Modern Violet',
+    icon: '🔮',
+    badge: 'Vibrant',
+    bg: '#faf5ff',
+    cardBg: '#ffffff',
+    border: 'rgba(109, 40, 217, 0.12)',
+    cardShadow: '0 8px 30px rgba(109, 40, 217, 0.08)',
+    textPrimary: '#1e1b4b',
+    textSecondary: '#4c1d95',
+    textMuted: '#6d28d9',
+    accent: '#7c3aed',
+    accentLit: '#8b5cf6',
+    accentBadgeBg: 'rgba(124, 58, 237, 0.1)',
+    accentBadgeBorder: 'rgba(124, 58, 237, 0.25)',
+    bulletColor: '#7c3aed',
+    notesBg: '#f3e8ff',
+  },
+  executive_dark: {
+    id: 'executive_dark',
+    name: 'Executive Dark',
+    icon: '🕶️',
+    badge: 'Dark Card',
+    bg: '#0f172a',
+    cardBg: '#1e293b',
+    border: 'rgba(255, 255, 255, 0.1)',
+    cardShadow: '0 8px 32px rgba(0, 0, 0, 0.35)',
+    textPrimary: '#f8fafc',
+    textSecondary: '#cbd5e1',
+    textMuted: '#94a3b8',
+    accent: '#38bdf8',
+    accentLit: '#7dd3fc',
+    accentBadgeBg: 'rgba(56, 189, 248, 0.12)',
+    accentBadgeBorder: 'rgba(56, 189, 248, 0.3)',
+    bulletColor: '#38bdf8',
+    notesBg: '#0f172a',
+  },
+  warm_ivory: {
+    id: 'warm_ivory',
+    name: 'Warm Editorial',
+    icon: '📖',
+    badge: 'Warm',
+    bg: '#fdfbf7',
+    cardBg: '#ffffff',
+    border: 'rgba(180, 83, 9, 0.15)',
+    cardShadow: '0 6px 24px rgba(180, 83, 9, 0.06)',
+    textPrimary: '#451a03',
+    textSecondary: '#78350f',
+    textMuted: '#92400e',
+    accent: '#b45309',
+    accentLit: '#d97706',
+    accentBadgeBg: 'rgba(180, 83, 9, 0.08)',
+    accentBadgeBorder: 'rgba(180, 83, 9, 0.25)',
+    bulletColor: '#d97706',
+    notesBg: '#fef3c7',
+  },
+};
+
+// ── 2. Visual Slide Themes (Tailored for 16:9 Full-Bleed AI Visual Illustrations) ──
+export const IMAGE_SLIDE_THEMES = {
   light_slate: {
     id: 'light_slate',
     name: 'Light Slate Glass',
     icon: '💎',
-    badge: 'Default',
+    badge: 'Glass',
     bg: '#f8fafc',
     canvasBg: 'linear-gradient(135deg, #ffffff, #f1f5f9)',
     cardBg: 'rgba(255, 255, 255, 0.88)',
@@ -29,7 +110,7 @@ export const SLIDE_THEMES = {
     id: 'dark_obsidian',
     name: 'Dark Obsidian Cyber',
     icon: '🌌',
-    badge: 'Cyberpunk',
+    badge: 'Cyber',
     bg: '#0a0d14',
     canvasBg: 'linear-gradient(135deg, #0a0d14, #111827)',
     cardBg: 'rgba(17, 24, 39, 0.88)',
@@ -77,7 +158,7 @@ export const SLIDE_THEMES = {
     id: 'sunset_warmth',
     name: 'Sunset Warmth',
     icon: '🌅',
-    badge: 'Editorial',
+    badge: 'Warmth',
     bg: '#fff7ed',
     canvasBg: 'linear-gradient(135deg, #fff7ed, #ffedd5)',
     cardBg: 'rgba(255, 255, 255, 0.92)',
@@ -122,6 +203,9 @@ export const SLIDE_THEMES = {
     imageStyleModifier: 'biophilic organic design, minimalist clean studio, soft diffuse emerald lighting, 8k',
   },
 };
+
+// Backward-compatible alias
+export const SLIDE_THEMES = IMAGE_SLIDE_THEMES;
 
 export const SLIDE_COUNTS = [
   { id: 4,  label: '4 Slides',  badge: 'Quick Pitch', desc: 'Title, Problem/Idea, 2 Key Points, Takeaway' },
