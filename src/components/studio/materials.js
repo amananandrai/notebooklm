@@ -21,31 +21,28 @@ const MAT = {
   // Broad Tropical Leaf Materials (rich, subtle sheen, wax cuticle)
   leafDark: new THREE.MeshPhysicalMaterial({
     color: '#153820',
-    roughness: 0.38,
+    roughness: 0.6,
     metalness: 0.0,
-    clearcoat: 0.25,
-    clearcoatRoughness: 0.4,
-    sheen: 0.15,
+    clearcoat: 0.08,
+    clearcoatRoughness: 0.6,
     side: THREE.DoubleSide
   }),
 
   leafMid: new THREE.MeshPhysicalMaterial({
     color: '#1e4b2a',
-    roughness: 0.35,
+    roughness: 0.58,
     metalness: 0.0,
-    clearcoat: 0.28,
-    clearcoatRoughness: 0.35,
-    sheen: 0.18,
+    clearcoat: 0.08,
+    clearcoatRoughness: 0.6,
     side: THREE.DoubleSide
   }),
 
   leafLight: new THREE.MeshPhysicalMaterial({
     color: '#2d6338',
-    roughness: 0.32,
+    roughness: 0.55,
     metalness: 0.0,
-    clearcoat: 0.3,
-    clearcoatRoughness: 0.3,
-    sheen: 0.2,
+    clearcoat: 0.08,
+    clearcoatRoughness: 0.6,
     side: THREE.DoubleSide
   }),
 
@@ -61,14 +58,14 @@ const MAT = {
 
   // Heavy Architectural Stone / Concrete Planter Pot
   concretePot: new THREE.MeshStandardMaterial({
-    color: '#73777d',
+    color: '#45484d',
     roughness: 0.85,
     metalness: 0.08
   }),
 
   ceramic: new THREE.MeshStandardMaterial({
-    color: '#ECE6D8',
-    roughness: 0.28,
+    color: '#bdb6a6',
+    roughness: 0.4,
     metalness: 0.02
   }),
 
@@ -108,14 +105,14 @@ const MAT = {
     metalness: 0.05
   }),
 
-  // Architectural Satin Black Studio Desk (eliminates white blowout glare)
+  // Matte smoked-oak desk top (low sheen so it never reads as a grey slab)
   matteDesk: new THREE.MeshPhysicalMaterial({
-    color: '#121417',
-    roughness: 0.42,
-    metalness: 0.12,
-    clearcoat: 0.18,
-    clearcoatRoughness: 0.25,
-    envMapIntensity: 0.6
+    color: '#2a1d14',
+    roughness: 0.62,
+    metalness: 0.0,
+    clearcoat: 0.12,
+    clearcoatRoughness: 0.5,
+    envMapIntensity: 0.5
   }),
 
   // Metal Frame & Shure SM7B Mic Metal

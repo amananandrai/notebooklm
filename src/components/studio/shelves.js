@@ -20,7 +20,7 @@ export function createDetailedBook(parent, position, color, rotationZ = 0, width
   // Inset page block
   const pages = new THREE.Mesh(
     new THREE.BoxGeometry(width * 0.82, height - 0.03, depth - 0.03),
-    new THREE.MeshStandardMaterial({ color: '#DDD6C6', roughness: 0.95 })
+    new THREE.MeshStandardMaterial({ color: '#c4bba8', roughness: 0.95 })
   );
   pages.position.x = width * 0.015;
   group.add(pages);

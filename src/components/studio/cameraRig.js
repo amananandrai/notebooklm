@@ -22,7 +22,7 @@ function mediumCloseUp(subject, partner, forward) {
   const right = toCamera.clone().negate().cross(UP).normalize();
   const leadSign = Math.sign(toPartner.dot(right)) || 1;
   const look = subject.clone().add(new THREE.Vector3(0, -0.05, 0)).addScaledVector(right, 0.16 * leadSign);
-  return { pos, look, fov: 28, push: 0.12 };
+  return { pos, look, fov: 28, push: 0.12, aperture: 0.0025 };
 }
 
 // Over the partner's shoulder onto `subject`.
@@ -32,7 +32,7 @@ function overTheShoulder(subject, partner) {
     .addScaledVector(away, 0.62)
     .add(new THREE.Vector3(0, 0.17, 0.42));
   const look = subject.clone().add(new THREE.Vector3(0, -0.04, 0));
-  return { pos, look, fov: 30, push: 0.08 };
+  return { pos, look, fov: 30, push: 0.08, aperture: 0.0025 };
 }
 
 export function buildShots({ headA, headB, forwardA, forwardB, boardCenter }) {
@@ -42,13 +42,15 @@ export function buildShots({ headA, headB, forwardA, forwardB, boardCenter }) {
       pos: new THREE.Vector3(0, 1.55, 4.9),
       look: new THREE.Vector3(0, boardCenter.y - 0.67, mid.z - 0.6),
       fov: 34,
-      push: 0.25
+      push: 0.25,
+      aperture: 0.0002
     },
     TWO_SHOT: {
       pos: new THREE.Vector3(mid.x, mid.y + 0.08, mid.z + 3.0),
       look: new THREE.Vector3(mid.x, mid.y - 0.15, mid.z),
       fov: 30,
-      push: 0.15
+      push: 0.15,
+      aperture: 0.0005
     },
     MCU_A: mediumCloseUp(headA, headB, forwardA),
     MCU_B: mediumCloseUp(headB, headA, forwardB),
@@ -58,7 +60,8 @@ export function buildShots({ headA, headB, forwardA, forwardB, boardCenter }) {
       pos: boardCenter.clone().add(new THREE.Vector3(0, -0.25, 5.0)),
       look: boardCenter.clone().add(new THREE.Vector3(0, -0.05, 0)),
       fov: 32,
-      push: 0.2
+      push: 0.2,
+      aperture: 0.0002
     }
   };
 }

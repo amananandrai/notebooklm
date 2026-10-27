@@ -38,6 +38,7 @@ function createMottledRugTexture() {
   }
 
   const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
   texture.wrapS = THREE.RepeatWrapping;
   texture.wrapT = THREE.RepeatWrapping;
   texture.repeat.set(4, 3);
@@ -47,10 +48,10 @@ function createMottledRugTexture() {
 export function setupEnvironment(scene) {
   // ── Studio Floor ──
   const floorMat = new THREE.MeshStandardMaterial({
-    color: '#080a0e',
-    roughness: 0.4,
-    metalness: 0.15,
-    envMapIntensity: 0.5
+    color: '#0b0c0f',
+    roughness: 0.7,
+    metalness: 0.0,
+    envMapIntensity: 0.35
   });
   const floor = new THREE.Mesh(new THREE.PlaneGeometry(40, 40), floorMat);
   floor.rotation.x = -Math.PI / 2;

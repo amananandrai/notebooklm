@@ -9,9 +9,10 @@ export function setupDisplay(scene, boardCanvas, boardTexture) {
   const screenZ = -2.46; // Clear separation in front of wall and bezel back
 
   // 2. High-Fidelity OLED Screen Material (No Z-fighting, self-illuminated)
+  // Emissive screen: show the slide colours as authored rather than tone-mapping them
   const boardMat = new THREE.MeshBasicMaterial({
     map: boardTexture,
-    toneMapped: true
+    toneMapped: false
   });
 
   const boardGeo = new THREE.PlaneGeometry(screenWidth, screenHeight);
@@ -66,6 +67,7 @@ export function setupDisplay(scene, boardCanvas, boardTexture) {
   captionCanvas.height = 120;
 
   const captionTexture = new THREE.CanvasTexture(captionCanvas);
+  captionTexture.colorSpace = THREE.SRGBColorSpace;
   const captionMaterial = new THREE.MeshBasicMaterial({
     map: captionTexture,
     transparent: true,

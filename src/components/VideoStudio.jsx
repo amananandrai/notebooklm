@@ -9,9 +9,7 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { BokehPass } from 'three/examples/jsm/postprocessing/BokehPass.js';
-import { FilmPass } from 'three/examples/jsm/postprocessing/FilmPass.js';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
-import { VignetteShader } from 'three/examples/jsm/shaders/VignetteShader.js';
 // Studio Module Imports
 import { MAT, rand } from './studio/materials.js';
 import { addMesh, createBox, createCylinder } from './studio/helpers.js';
@@ -29,6 +27,7 @@ import { setupAvatars } from './studio/avatars.js';
 import { SEATS, seatForward } from './studio/layout.js';
 import { buildShots, planShots, focusSubject } from './studio/cameraRig.js';
 import { SPEAKER_COLORS, isHostA, speakerColor } from './studio/speakers.js';
+import { FinishShader } from './studio/finishShader.js';
 
 
 const EMPTY_LIST = [];
@@ -689,25 +688,19 @@ export default function VideoStudio({ slides, script }) {
 
     const bokehPass = new BokehPass(scene, camera, {
       focus: 5.0,
-      aperture: 0.00015,
-      maxblur: 0.008,
+      aperture: 0.0002,
+      maxblur: 0.01,
       width: width,
       height: height
     });
     composer.addPass(bokehPass);
 
-    // Film Grain (makes the image look slightly noisy and cinematic)
-    const filmPass = new FilmPass(0.25, false); // intensity, grayscale
-    composer.addPass(filmPass);
-
-    // Vignette (darkens corners)
-    const vignettePass = new ShaderPass(VignetteShader);
-    vignettePass.uniforms['offset'].value = 1.0;
-    vignettePass.uniforms['darkness'].value = 1.25;
-    composer.addPass(vignettePass);
-
     const outputPass = new OutputPass();
     composer.addPass(outputPass);
+
+    // Soft vignette, light grain and dither, applied in display space
+    const finishPass = new ShaderPass(FinishShader);
+    composer.addPass(finishPass);
 
     composerRef.current = composer;
     bokehPassRef.current = bokehPass;
@@ -760,6 +753,7 @@ export default function VideoStudio({ slides, script }) {
     // 4. LED Display Wall
     const boardCanvas = canvasRef.current;
     const boardTexture = new THREE.CanvasTexture(boardCanvas);
+    boardTexture.colorSpace = THREE.SRGBColorSpace;
     boardTextureRef.current = boardTexture;
 
     const { boardCenter, captionMesh, captionTexture, captionCanvas } = setupDisplay(scene, boardCanvas, boardTexture);
@@ -1073,10 +1067,13 @@ export default function VideoStudio({ slides, script }) {
            focusDist = camera.position.distanceTo(boardCenter);
         }
 
-        // Lerp the focus distance for smooth racks
-        bokehPassRef.current.uniforms['focus'].value += (focusDist - bokehPassRef.current.uniforms['focus'].value) * 0.05;
+        // Lerp focus and aperture for smooth racks; close shots get a shallower depth of field
+        const bokehUniforms = bokehPassRef.current.uniforms;
+        bokehUniforms['focus'].value += (focusDist - bokehUniforms['focus'].value) * 0.05;
+        bokehUniforms['aperture'].value += (activeShot.aperture - bokehUniforms['aperture'].value) * 0.1;
       }
 
+      finishPass.uniforms.uTime.value = time;
       if (composerRef.current) {
         composerRef.current.render();
       } else {
