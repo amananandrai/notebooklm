@@ -1,13 +1,14 @@
 import * as THREE from 'three';
 import { MAT } from './materials.js';
+import { DESK } from './layout.js';
 
 export function createPremiumDesk(scene) {
   const deskGroup = new THREE.Group();
-  deskGroup.position.set(0, 0, 0.55);
+  deskGroup.position.set(DESK.x, 0, DESK.z);
 
   // 1. Tabletop: Heavy Architectural Beveled Top
-  const topWidth = 2.4;
-  const topDepth = 1.0;
+  const topWidth = DESK.width;
+  const topDepth = DESK.depth;
   const topHeight = 0.06;
 
   const topShape = new THREE.Shape();

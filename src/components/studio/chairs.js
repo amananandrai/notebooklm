@@ -1,10 +1,12 @@
 import * as THREE from 'three';
 import { MAT } from './materials.js';
 
-export function createChair(scene, x, accent = null, rotY = 0) {
+// `placement` is an entry of SEATS in layout.js; the chair is centred on it.
+
+export function createChair(scene, placement) {
   const chair = new THREE.Group();
-  chair.position.set(x, 0, 0.55);
-  chair.rotation.y = rotY;
+  chair.position.set(placement.x, 0, placement.z);
+  chair.rotation.y = placement.rotY;
 
   const frameMat = MAT.metal;
   const woodArmMat = MAT.warmWoodArmrest;

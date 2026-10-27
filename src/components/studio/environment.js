@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { MAT } from './materials.js';
+import { FLOOR_Y } from './layout.js';
 
 // Procedural high-res mottled woven rug texture
 function createMottledRugTexture() {
@@ -53,7 +54,7 @@ export function setupEnvironment(scene) {
   });
   const floor = new THREE.Mesh(new THREE.PlaneGeometry(40, 40), floorMat);
   floor.rotation.x = -Math.PI / 2;
-  floor.position.y = -0.08;
+  floor.position.y = FLOOR_Y;
   floor.position.z = 0.4;
   floor.receiveShadow = true;
   scene.add(floor);
@@ -68,7 +69,7 @@ export function setupEnvironment(scene) {
   });
   const rug = new THREE.Mesh(new THREE.PlaneGeometry(5.8, 3.8), rugMat);
   rug.rotation.x = -Math.PI / 2;
-  rug.position.set(0, -0.07, 0.55);
+  rug.position.set(0, FLOOR_Y + 0.005, 0.55);
   rug.receiveShadow = true;
   scene.add(rug);
 
@@ -117,16 +118,7 @@ export function setupEnvironment(scene) {
   baseboardLed.position.set(0, 0.03, -2.48);
   scene.add(baseboardLed);
 
-  // ── Foreground Blurred Boom Arm (cinematic depth framing) ──
-  const fgMicArmMat = new THREE.MeshStandardMaterial({ color: '#090a0c', roughness: 0.3, metalness: 0.85 });
-  const fgMicArm = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 2.2, 12), fgMicArmMat);
-  fgMicArm.position.set(3.8, 0.5, 5.0);
-  fgMicArm.rotation.set(-Math.PI / 4.5, 0, Math.PI / 7);
-  fgMicArm.scale.setScalar(0.55);
-  scene.add(fgMicArm);
-
   return {
-    neons: [MAT.cyanNeon, MAT.blueLedRunner],
-    fgMicArm
+    neons: [MAT.cyanNeon, MAT.blueLedRunner]
   };
 }
