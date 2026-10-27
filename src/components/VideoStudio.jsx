@@ -9,9 +9,7 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { BokehPass } from 'three/examples/jsm/postprocessing/BokehPass.js';
-import { FilmPass } from 'three/examples/jsm/postprocessing/FilmPass.js';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
-import { VignetteShader } from 'three/examples/jsm/shaders/VignetteShader.js';
 // Studio Module Imports
 import { MAT, rand } from './studio/materials.js';
 import { addMesh, createBox, createCylinder } from './studio/helpers.js';
@@ -26,6 +24,11 @@ import { createTableDecor } from './studio/tableDecor.js';
 import { setupDisplay } from './studio/display.js';
 import { setupBranding } from './studio/branding.js';
 import { setupAvatars } from './studio/avatars.js';
+import { SEATS, seatForward } from './studio/layout.js';
+import { buildShots, planShots, focusSubject } from './studio/cameraRig.js';
+import { SPEAKER_COLORS, isHostA, speakerColor } from './studio/speakers.js';
+import { FinishShader } from './studio/finishShader.js';
+import { createTextEnvelope, analyserLevel, createHostPerformer } from './studio/performance.js';
 
 
 const EMPTY_LIST = [];
@@ -62,6 +65,9 @@ export default function VideoStudio({ slides, script }) {
   const [recordingError, setRecordingError] = useState('');
 
   const synthRef = useRef(window.speechSynthesis);
+  const speechEnvelopeRef = useRef(null);
+  if (!speechEnvelopeRef.current) speechEnvelopeRef.current = createTextEnvelope();
+  const analyserRef = useRef(null); // narration analyser while recording
   const timerRef = useRef(null);
   const turnIdxRef = useRef(0);
 
@@ -91,71 +97,8 @@ export default function VideoStudio({ slides, script }) {
   }, [playing, paused, current, turns]);
 
   useEffect(() => {
-    if (!turns || turns.length === 0) {
-      shotPlanRef.current = [];
-      return;
-    }
-    const plan = [];
-    let lastShot = 'ESTABLISH';
-    
-    for (let i = 0; i < turns.length; i++) {
-        const turn = turns[i];
-        const isA = turn.speaker?.toLowerCase().includes('host a') || turn.speaker?.toLowerCase().includes('alex');
-        const text = turn.text || "";
-        const lowerText = text.toLowerCase();
-        
-        // Simple hash for deterministic decisions
-        let hash = 0;
-        for (let j = 0; j < text.length; j++) {
-            hash = Math.imul(31, hash) + text.charCodeAt(j) | 0;
-        }
-        const seededRandom = () => {
-            hash = Math.imul(741103597, hash) + 1 | 0;
-            return (hash >>> 0) / 4294967296;
-        };
-        
-        let shot = 'ESTABLISH';
-        let motion = 'none';
-        let intent = 'explain';
-
-        // NLP heuristics for semantic intent
-        if (lowerText.includes('?')) intent = 'ask';
-        else if (lowerText.includes('!')) intent = 'emphasize';
-        else if (lowerText.match(/(exactly|yes|agree|absolutely|right|interesting)/)) intent = 'react';
-
-        // Assign shot based on intent and text length
-        if (i === 0 || (i % 8 === 0 && text.length > 50)) {
-            shot = 'ESTABLISH';
-            motion = 'slow_push';
-        } else if (text.length < 50 && intent !== 'react') {
-            shot = 'TWO_SHOT';
-            motion = 'slow_push';
-        } else if (lowerText.match(/(slide|board|diagram|here we see|look at)/)) {
-            shot = 'BOARD';
-            motion = 'none';
-        } else if (intent === 'ask') {
-            shot = isA ? 'OTS_A' : 'OTS_B';
-            motion = 'orbit';
-        } else if (intent === 'react') {
-            // Cut to the other person reacting, or keep current speaker if it's a strong reaction
-            shot = (seededRandom() > 0.5) ? (isA ? 'REACTION_B' : 'REACTION_A') : (isA ? 'CU_A' : 'CU_B');
-            motion = 'none';
-        } else {
-            shot = isA ? 'CU_A' : 'CU_B';
-            motion = 'slow_push';
-            // Occasionally cut to reaction of other host for long dialogue
-            if (text.length > 150 && seededRandom() > 0.8) {
-                shot = isA ? 'REACTION_B' : 'REACTION_A';
-            }
-        }
-        
-        const focusTarget = shot === 'BOARD' ? 'board' : 
-                            (shot.includes('_A') || (shot === 'TWO_SHOT' && isA) ? 'hostA' : 'hostB');
-        
-        plan.push({ shot, motion, focusTarget, intent });
-    }
-    shotPlanRef.current = plan;
-  }, [turns]);
+    shotPlanRef.current = planShots(turns, slideList.length);
+  }, [turns, slideList.length]);
 
   // Speech voices
   const [voices, setVoices] = useState([]);
@@ -178,41 +121,39 @@ export default function VideoStudio({ slides, script }) {
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
+    const W = canvas.width;
+    const H = canvas.height;
 
     // Rich Cyan-to-Purple Deep Gradient Background (matching target reference)
-    const bgGrad = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
+    const bgGrad = ctx.createLinearGradient(0, 0, W, H);
     bgGrad.addColorStop(0, '#1a3c4f');    // Deep teal cyan on top-left
     bgGrad.addColorStop(0.5, '#1e2b4a');  // Moody deep blue in center
     bgGrad.addColorStop(1, '#2f204c');    // Rich violet purple on bottom-right
     ctx.fillStyle = bgGrad;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillRect(0, 0, W, H);
 
     // Subtle ambient vignette
-    const vignette = ctx.createRadialGradient(
-      canvas.width * 0.45, canvas.height * 0.45, 100,
-      canvas.width * 0.5, canvas.height * 0.5, canvas.width * 0.75
-    );
+    const vignette = ctx.createRadialGradient(W * 0.45, H * 0.45, 100, W * 0.5, H * 0.5, W * 0.75);
     vignette.addColorStop(0, 'rgba(255, 255, 255, 0.04)');
     vignette.addColorStop(0.8, 'rgba(0, 0, 0, 0.25)');
     vignette.addColorStop(1, 'rgba(0, 0, 0, 0.6)');
     ctx.fillStyle = vignette;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillRect(0, 0, W, H);
 
     const slide = slideList[currentSlideIdx];
     if (!slide) {
       // Empty presentation state
       ctx.fillStyle = '#ffffff';
-      ctx.font = 'bold 52px "Inter", sans-serif';
+      ctx.font = 'bold 64px "Inter", sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText('A I  S T U D I O', canvas.width / 2, canvas.height / 2 - 20);
+      ctx.fillText('A I  S T U D I O', W / 2, H / 2 - 20);
       ctx.fillStyle = '#23D5FF';
-      ctx.font = '24px "Inter", sans-serif';
-      ctx.fillText('WAITING FOR SIGNAL...', canvas.width / 2, canvas.height / 2 + 30);
+      ctx.font = '30px "Inter", sans-serif';
+      ctx.fillText('WAITING FOR SIGNAL...', W / 2, H / 2 + 40);
       if (boardTextureRef.current) boardTextureRef.current.needsUpdate = true;
       return;
     }
 
-    // Draw Slide contents
     ctx.textAlign = 'left';
 
     const wrapText = (text, maxWidth) => {
@@ -232,135 +173,103 @@ export default function VideoStudio({ slides, script }) {
       return lines;
     };
 
-    // Header Title
+    const PAD_X = 110;
+    const contentWidth = W - PAD_X * 2;
+    const TITLE_FONT = 'bold 54px "Inter", sans-serif';
+    const SUBTITLE_FONT = '300 30px "Inter", sans-serif';
+    const CARD_FONT = '500 28px "Inter", sans-serif';
+    const CARD_LINE = 40;
+    const CARD_GAP = 18;
+
+    // Measure every block up front (including bullets not revealed yet) so the
+    // layout stays put as cards appear.
+    ctx.font = TITLE_FONT;
+    const titleLines = wrapText(slide.title, contentWidth - 140);
+    ctx.font = SUBTITLE_FONT;
+    const subtitleLines = slide.subtitle ? wrapText(slide.subtitle, contentWidth) : [];
+    ctx.font = CARD_FONT;
+    const bullets = slide.bullets || [];
+    const cardLines = bullets.map((bullet) => wrapText(bullet, contentWidth - 70));
+    const cardHeights = cardLines.map((lines) => lines.length * CARD_LINE + 34);
+
+    const headerHeight = titleLines.length * 64 + subtitleLines.length * 42;
+    const cardsHeight = cardHeights.reduce((sum, h) => sum + h + CARD_GAP, 0);
+    const totalHeight = headerHeight + 60 + cardsHeight;
+    // Centre the block, nudged up because the hosts' heads cover the bottom edge
+    let y = Math.max(70, (H - totalHeight) / 2 - 30);
+
     ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 40px "Inter", sans-serif';
-    let headerY = 110;
-    wrapText(slide.title, canvas.width - 160).forEach((line) => {
-      ctx.fillText(line, 80, headerY);
-      headerY += 50;
+    ctx.font = TITLE_FONT;
+    titleLines.forEach((line) => {
+      y += 64;
+      ctx.fillText(line, PAD_X, y - 14);
     });
 
-    if (slide.subtitle) {
-      ctx.fillStyle = '#23D5FF';
-      ctx.font = '300 24px "Inter", sans-serif';
-      wrapText(slide.subtitle, canvas.width - 160).forEach((line) => {
-        ctx.fillText(line, 80, headerY);
-        headerY += 34;
-      });
-    }
+    ctx.fillStyle = '#23D5FF';
+    ctx.font = SUBTITLE_FONT;
+    subtitleLines.forEach((line) => {
+      y += 42;
+      ctx.fillText(line, PAD_X, y - 10);
+    });
 
     // Divider
+    y += 30;
     ctx.strokeStyle = '#334155';
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.moveTo(80, headerY + 20);
-    ctx.lineTo(canvas.width - 80, headerY + 20);
+    ctx.moveTo(PAD_X, y);
+    ctx.lineTo(W - PAD_X, y);
     ctx.stroke();
+    y += 30;
 
     // Determine how many bullets to show based on conversation progress within this slide
-    // Map current turn index to a percentage of completion for the current slide
     const turnsPerSlide = Math.max(1, Math.ceil(turns.length / slideList.length));
     const turnsInThisSlide = current - (currentSlideIdx * turnsPerSlide);
     const progressRatio = Math.max(0, Math.min(1, (turnsInThisSlide + 1) / turnsPerSlide));
-    
-    const wrappedBullets = slide.bullets || [];
-    const visibleBulletsCount = Math.max(1, Math.ceil(wrappedBullets.length * progressRatio));
+    const visibleBulletsCount = Math.max(1, Math.ceil(bullets.length * progressRatio));
 
     // Cards layout (replacing bullet points)
-    let startY = headerY + 50;
-    wrappedBullets.slice(0, visibleBulletsCount).forEach((bullet, idx) => {
+    ctx.font = CARD_FONT;
+    cardLines.slice(0, visibleBulletsCount).forEach((lines, idx) => {
       // Highlight the newest card, dim the older ones
       const isLatest = idx === visibleBulletsCount - 1;
-      
-      const cardHeight = Math.max(60, wrapText(bullet, canvas.width - 200).length * 34 + 30);
-      
-      // Draw card background
+      const cardHeight = cardHeights[idx];
+
       ctx.fillStyle = isLatest ? '#1e293b' : '#0f172a';
       ctx.beginPath();
-      ctx.roundRect(80, startY, canvas.width - 160, cardHeight, 12);
+      ctx.roundRect(PAD_X, y, contentWidth, cardHeight, 14);
       ctx.fill();
 
-      // Draw active indicator (glowing left edge)
+      // Active indicator (glowing left edge)
       if (isLatest) {
-         ctx.fillStyle = '#23D5FF';
-         ctx.beginPath();
-         ctx.roundRect(80, startY, 6, cardHeight, [12, 0, 0, 12]);
-         ctx.fill();
+        ctx.fillStyle = '#23D5FF';
+        ctx.beginPath();
+        ctx.roundRect(PAD_X, y, 7, cardHeight, [14, 0, 0, 14]);
+        ctx.fill();
       }
 
-      // Draw text inside card
       ctx.fillStyle = isLatest ? '#F8FAFC' : '#94A3B8';
-      ctx.font = isLatest ? '500 22px "Inter", sans-serif' : '400 22px "Inter", sans-serif';
-      
-      let textY = startY + 36;
-      wrapText(bullet, canvas.width - 220).forEach((line) => {
-        ctx.fillText(line, 110, textY);
-        textY += 34;
+      ctx.font = isLatest ? CARD_FONT : '400 28px "Inter", sans-serif';
+      lines.forEach((line, li) => {
+        ctx.fillText(line, PAD_X + 36, y + 44 + li * CARD_LINE);
       });
-      startY += cardHeight + 20;
+      y += cardHeight + CARD_GAP;
     });
 
-    // Subtitle indicator (small pill at top right)
+    // Slide counter pill (top right)
     ctx.fillStyle = '#1e293b';
     ctx.beginPath();
-    ctx.roundRect(canvas.width - 160, 45, 100, 36, 18);
+    ctx.roundRect(W - 200, 52, 110, 42, 21);
     ctx.fill();
     ctx.fillStyle = '#94a3b8';
-    ctx.font = '600 16px "Inter", sans-serif';
+    ctx.font = '600 20px "Inter", sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText(`${currentSlideIdx + 1} / ${slideList.length}`, canvas.width - 110, 68);
-
-    // Dynamic burned-in subtitles at the bottom of blackboard if playing
-    if (showCaptions && playing && !isRecording && current >= 0) {
-      const turn = turns[current];
-      if (turn) {
-        const speakerName = turn.speaker?.split(' ')[0] || 'Host';
-        const speakerColor = turn.speaker?.toLowerCase().includes('alex') ? '#a594f2' : '#f9a8d4';
-        
-        // Draw subtitle background plate
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
-        ctx.fillRect(40, canvas.height - 130, canvas.width - 80, 100);
-        ctx.strokeStyle = speakerColor + '40';
-        ctx.lineWidth = 2;
-        ctx.strokeRect(40, canvas.height - 130, canvas.width - 80, 100);
-
-        // Draw speaker name pill
-        ctx.fillStyle = speakerColor;
-        ctx.font = 'bold 22px "Inter", sans-serif';
-        ctx.fillText(speakerName, 60, canvas.height - 75);
-
-        // Draw spoken text (wrapped to fit)
-        ctx.fillStyle = '#ffffff';
-        ctx.font = 'italic 19px "Inter", sans-serif';
-        
-        const maxTextWidth = canvas.width - 240;
-        const words = turn.text.split(' ');
-        let line = '';
-        const lines = [];
-        
-        for (let n = 0; n < words.length; n++) {
-          const testLine = line + words[n] + ' ';
-          const metrics = ctx.measureText(testLine);
-          if (metrics.width > maxTextWidth && n > 0) {
-            lines.push(line);
-            line = words[n] + ' ';
-          } else {
-            line = testLine;
-          }
-        }
-        lines.push(line);
-        
-        lines.slice(0, 3).forEach((l, li) => {
-          ctx.fillText(l.trim(), 170, canvas.height - 90 + li * 28);
-        });
-      }
-    }
+    ctx.fillText(`${currentSlideIdx + 1} / ${slideList.length}`, W - 145, 80);
 
     if (boardTextureRef.current) {
       boardTextureRef.current.needsUpdate = true;
     }
-  }, [currentSlideIdx, current, isRecording, playing, showCaptions, turns, slideList]);
+  }, [currentSlideIdx, current, turns, slideList]);
 
   // ── Draw 3D Captions ──────────────────────────────────────────
   const updateCaptionOverlay = useCallback(() => {
@@ -386,8 +295,7 @@ export default function VideoStudio({ slides, script }) {
     // Only show during actual video recording/playback logic to avoid UI clutter
     mesh.visible = isRecording; 
 
-    const isHostA = turn.speaker?.toLowerCase().includes('host a') || turn.speaker?.toLowerCase().includes('alex');
-    const speakerColor = isHostA ? '#23D5FF' : '#7C5CFF';
+    const turnColor = speakerColor(turn.speaker);
 
     // Dark translucent glass pill
     ctx.fillStyle = 'rgba(11, 16, 32, 0.85)';
@@ -401,7 +309,7 @@ export default function VideoStudio({ slides, script }) {
     ctx.strokeRect(40, 20, canvas.width - 80, canvas.height - 40, 30);
 
     // Speaker indicator dot
-    ctx.fillStyle = speakerColor;
+    ctx.fillStyle = turnColor;
     ctx.beginPath();
     ctx.arc(80, canvas.height / 2, 8, 0, Math.PI * 2);
     ctx.fill();
@@ -445,7 +353,7 @@ export default function VideoStudio({ slides, script }) {
   // Redraw chalkboard when slide or speaker changes
   useEffect(() => {
     updateBlackboardTexture();
-  }, [currentSlideIdx, current, playing, showCaptions, updateBlackboardTexture]);
+  }, [updateBlackboardTexture]);
 
   useEffect(() => {
     updateCaptionOverlay();
@@ -490,7 +398,7 @@ export default function VideoStudio({ slides, script }) {
     }
 
     const turn = turns[idx];
-    const isA  = turn.speaker?.toLowerCase().includes('host a') || turn.speaker?.toLowerCase().includes('alex');
+    const isA  = isHostA(turn.speaker);
 
     const utter = new SpeechSynthesisUtterance(turn.text);
     utter.voice = isA ? voiceA : voiceB;
@@ -498,11 +406,18 @@ export default function VideoStudio({ slides, script }) {
     utter.pitch = isA ? 0.98 : 1.08;
 
     utter.onstart = () => {
+      speechEnvelopeRef.current.start(turn.text, performance.now() / 1000);
       setCurrent(idx);
       turnIdxRef.current = idx;
     };
 
+    // Word boundaries keep the estimated speech rhythm in step with the voice
+    utter.onboundary = (event) => {
+      if (event.name === 'word') speechEnvelopeRef.current.boundary(event.charIndex, performance.now() / 1000);
+    };
+
     utter.onend = () => {
+      speechEnvelopeRef.current.stop();
       setTimeout(() => {
         if (turnIdxRef.current === idx) {
           speakTurn(idx + 1);
@@ -541,9 +456,11 @@ export default function VideoStudio({ slides, script }) {
       speakTurn(0);
     } else if (paused) {
       synthRef.current.resume();
+      speechEnvelopeRef.current.resume(performance.now() / 1000);
       setPaused(false);
     } else {
       synthRef.current.pause();
+      speechEnvelopeRef.current.pause(performance.now() / 1000);
       setPaused(true);
     }
   }
@@ -554,6 +471,7 @@ export default function VideoStudio({ slides, script }) {
       return;
     }
     synthRef.current.cancel();
+    speechEnvelopeRef.current.stop();
     setPlaying(false);
     setPaused(false);
     setCurrent(-1);
@@ -581,6 +499,7 @@ export default function VideoStudio({ slides, script }) {
       recordingAudioUrlRef.current = null;
     }
     recordingDurationsRef.current = [];
+    analyserRef.current = null;
   }, []);
 
   const stopRecording = useCallback(() => {
@@ -644,6 +563,11 @@ export default function VideoStudio({ slides, script }) {
       const destination = audioContext.createMediaStreamDestination();
       source.connect(destination);
       source.connect(audioContext.destination);
+      // Analyse the narration so the hosts move with the real voice
+      const analyser = audioContext.createAnalyser();
+      analyser.fftSize = 1024;
+      source.connect(analyser);
+      analyserRef.current = { node: analyser, buffer: new Float32Array(analyser.fftSize) };
 
       // Force 1920x1080 internal resolution for capture
       rendererRef.current.setSize(1920, 1080, false);
@@ -784,25 +708,19 @@ export default function VideoStudio({ slides, script }) {
 
     const bokehPass = new BokehPass(scene, camera, {
       focus: 5.0,
-      aperture: 0.00015,
-      maxblur: 0.008,
+      aperture: 0.0002,
+      maxblur: 0.01,
       width: width,
       height: height
     });
     composer.addPass(bokehPass);
 
-    // Film Grain (makes the image look slightly noisy and cinematic)
-    const filmPass = new FilmPass(0.25, false); // intensity, grayscale
-    composer.addPass(filmPass);
-
-    // Vignette (darkens corners)
-    const vignettePass = new ShaderPass(VignetteShader);
-    vignettePass.uniforms['offset'].value = 1.0;
-    vignettePass.uniforms['darkness'].value = 1.25;
-    composer.addPass(vignettePass);
-
     const outputPass = new OutputPass();
     composer.addPass(outputPass);
+
+    // Soft vignette, light grain and dither, applied in display space
+    const finishPass = new ShaderPass(FinishShader);
+    composer.addPass(finishPass);
 
     composerRef.current = composer;
     bokehPassRef.current = bokehPass;
@@ -813,9 +731,8 @@ export default function VideoStudio({ slides, script }) {
     scene.userData.shelfLights = shelfLights;
 
     // 3. Environment (Wood slats, blue baseboard LED, luxury rug, concrete floor)
-    const { neons, fgMicArm } = setupEnvironment(scene);
+    const { neons } = setupEnvironment(scene);
     scene.userData.neons = neons;
-    scene.userData.fgMicArm = fgMicArm;
 
     // 4. Studio Decor & Architecture
     const decorRoot = new THREE.Group();
@@ -842,30 +759,73 @@ export default function VideoStudio({ slides, script }) {
     // 5. Architectural Studio Desk & Mid-Century Chairs
     createPremiumDesk(scene);
 
-    // Mid-Century Scandinavian Chairs angled inward toward table & partner
-    createChair(scene, -1.55, null, 0.38);
-    createChair(scene, 1.55, null, -0.38);
+    // Mid-Century Scandinavian Chairs behind the desk, angled toward each other
+    createChair(scene, SEATS.a);
+    createChair(scene, SEATS.b);
 
     // Studio Branding
     setupBranding(scene);
 
     // Broadcast Microphones
-    const mics = setupMicrophones(scene);
+    const mics = setupMicrophones(scene, SPEAKER_COLORS);
     scene.userData.mics = mics;
 
     // 4. LED Display Wall
     const boardCanvas = canvasRef.current;
     const boardTexture = new THREE.CanvasTexture(boardCanvas);
+    boardTexture.colorSpace = THREE.SRGBColorSpace;
     boardTextureRef.current = boardTexture;
 
-    const { boardMesh, captionMesh, captionTexture, captionCanvas } = setupDisplay(scene, boardCanvas, boardTexture);
+    const { boardCenter, captionMesh, captionTexture, captionCanvas } = setupDisplay(scene, boardCanvas, boardTexture);
+    // Recording captions ride on the camera so every shot keeps them in frame
+    camera.add(captionMesh);
+    scene.add(camera);
     captionCanvasRef.current = captionCanvas;
     captionTextureRef.current = captionTexture;
     captionMeshRef.current = captionMesh;
     updateCaptionOverlayRef.current();
 
+    // ── Camera shots, framed on where the hosts' heads really are ──
+    let disposed = false;
+    const hostAnchors = {};
+    ['a', 'b'].forEach((key) => {
+      const seat = SEATS[key];
+      const f = seatForward(seat);
+      hostAnchors[key] = {
+        forward: new THREE.Vector3(f.x, 0, f.z),
+        // Provisional head position until the avatar is loaded and seated
+        head: new THREE.Vector3(seat.x + f.x * 0.05, 1.12, seat.z + f.z * 0.05)
+      };
+    });
+    const computeShots = () => buildShots({
+      headA: hostAnchors.a.head,
+      headB: hostAnchors.b.head,
+      forwardA: hostAnchors.a.forward,
+      forwardB: hostAnchors.b.forward,
+      boardCenter
+    });
+    let shots = computeShots();
+
+    const headPosition = (host, target) => {
+      const head = host?.userData.bones?.head;
+      if (head) return head.getWorldPosition(target);
+      return target.copy(host.position).setY(1.12);
+    };
+
+    const handleHostReady = (key, model) => {
+      if (disposed) return;
+      const anchor = hostAnchors[key];
+      headPosition(model, anchor.head);
+      // The head bone sits at the base of the skull; the mouth is just in front of it
+      const mouth = anchor.head.clone().addScaledVector(anchor.forward, 0.09).add(new THREE.Vector3(0, -0.02, 0));
+      mics.aimAt[key](mouth);
+      model.userData.performer = createHostPerformer(model, key === 'a' ? 1 : 2);
+      shots = computeShots();
+      camera.userData.currentShot = null; // re-frame the current shot on the real heads
+    };
+
     // 5. Load Host Avatars
-    setupAvatars(scene, avatarA, avatarB, hostARef, hostBRef, mixersRef);
+    setupAvatars(scene, avatarA, avatarB, hostARef, hostBRef, mixersRef, handleHostReady);
 
     // Initial chalkboard render
     updateBlackboardTextureRef.current();
@@ -873,23 +833,14 @@ export default function VideoStudio({ slides, script }) {
     // ── Animation Frame Loop ─────────────────────────────────────
     let lastTime = performance.now();
     let startTime = lastTime;
-
-    const CAM_TARGETS = {
-      ESTABLISH: { pos: new THREE.Vector3(0, 1.28, 4.65), look: new THREE.Vector3(0, 1.15, 0) },
-      TWO_SHOT: { pos: new THREE.Vector3(0, 1.22, 2.75), look: new THREE.Vector3(0, 1.12, 0.4) },
-      CU_A: { pos: new THREE.Vector3(-1.35, 1.24, 1.85), look: new THREE.Vector3(-1.55, 1.22, 0.5) },
-      CU_B: { pos: new THREE.Vector3(1.35, 1.24, 1.85), look: new THREE.Vector3(1.55, 1.22, 0.5) },
-      OTS_A: { pos: new THREE.Vector3(1.05, 1.24, 1.15), look: new THREE.Vector3(-1.55, 1.22, 0.5) },
-      OTS_B: { pos: new THREE.Vector3(-1.05, 1.24, 1.15), look: new THREE.Vector3(1.55, 1.22, 0.5) },
-      REACTION_A: { pos: new THREE.Vector3(-1.38, 1.22, 1.9), look: new THREE.Vector3(-1.55, 1.22, 0.5) },
-      REACTION_B: { pos: new THREE.Vector3(1.38, 1.22, 1.9), look: new THREE.Vector3(1.55, 1.22, 0.5) },
-      BOARD: { pos: new THREE.Vector3(0.1, 1.65, 3.8), look: new THREE.Vector3(0.1, 2.25, -2.48) }
-    };
-    camera.userData.targetLook = new THREE.Vector3(0, 1.15, 0);
+    let shotStartTime = 0;
 
     // Pre-allocate vectors to avoid GC pressure
     const tmpLookA = new THREE.Vector3();
     const tmpLookB = new THREE.Vector3();
+    const headA = new THREE.Vector3();
+    const headB = new THREE.Vector3();
+    const viewDir = new THREE.Vector3();
 
     function animate() {
       animationFrameRef.current = requestAnimationFrame(animate);
@@ -904,15 +855,17 @@ export default function VideoStudio({ slides, script }) {
       let stateB = 'idle';
 
       if (hostARef.current && hostBRef.current) {
-        tmpLookA.set(2.4, 1.65, 0); // Default look at B
-        tmpLookB.set(-2.4, 1.65, 0); // Default look at A
+        headPosition(hostARef.current, headA);
+        headPosition(hostBRef.current, headB);
+        tmpLookA.copy(headB); // Default look at B
+        tmpLookB.copy(headA); // Default look at A
 
         stateA = 'listen';
         stateB = 'listen';
 
         if (playback.playing && !playback.paused && playback.current >= 0 && playback.turns[playback.current]) {
           const turn = playback.turns[playback.current];
-          const isA  = turn.speaker?.toLowerCase().includes('host a') || turn.speaker?.toLowerCase().includes('alex');
+          const isA  = isHostA(turn.speaker);
           const currentPlan = shotPlanRef.current[playback.current] || {};
           
           // Generate a pseudo-random seed based on time to switch gaze occasionally
@@ -920,18 +873,14 @@ export default function VideoStudio({ slides, script }) {
           
           if (isA) {
              stateA = currentPlan.intent === 'emphasize' ? 'gesture' : 'talk';
-             if (gazeCycle < 7) tmpLookA.set(2.4, 1.65, 0); // 70% at co-host
+             if (gazeCycle < 7) tmpLookA.copy(headB); // 70% at co-host
              else if (gazeCycle < 9) tmpLookA.copy(camera.position); // 20% at camera
-             else tmpLookA.copy(CAM_TARGETS.BOARD.look); // 10% at board
-             
-             tmpLookB.set(-2.4, 1.65, 0); // B always looks at A while listening
+             else tmpLookA.copy(boardCenter); // 10% at board
           } else {
              stateB = currentPlan.intent === 'emphasize' ? 'gesture' : 'talk';
-             if (gazeCycle < 7) tmpLookB.set(-2.4, 1.65, 0); // 70% at co-host
+             if (gazeCycle < 7) tmpLookB.copy(headA); // 70% at co-host
              else if (gazeCycle < 9) tmpLookB.copy(camera.position); // 20% at camera
-             else tmpLookB.copy(CAM_TARGETS.BOARD.look); // 10% at board
-             
-             tmpLookA.set(2.4, 1.65, 0); // A always looks at B while listening
+             else tmpLookB.copy(boardCenter); // 10% at board
           }
         } else {
           stateA = 'idle';
@@ -953,54 +902,37 @@ export default function VideoStudio({ slides, script }) {
       }
 
       // ── Semantic AI Director & Camera Cinematography ──
-      let activeCamTarget = CAM_TARGETS.ESTABLISH;
-      let cameraMotion = { pushIn: false, orbit: false, slow_push: false };
-      let activeFocusTarget = 'board';
-      let activeShotName = 'ESTABLISH';
-      
+      let activeShotName = 'WIDE';
+      let speakerIsA = true;
       const shotPlan = shotPlanRef.current;
       if (playback.playing && !playback.paused && playback.current >= 0 && playback.current < shotPlan.length) {
-         const plan = shotPlan[playback.current];
-         activeCamTarget = CAM_TARGETS[plan.shot] || CAM_TARGETS.ESTABLISH;
-         activeShotName = plan.shot;
-         if (plan.motion === 'pushIn') cameraMotion.pushIn = true;
-         if (plan.motion === 'orbit') cameraMotion.orbit = true;
-         if (plan.motion === 'slow_push') cameraMotion.slow_push = true;
-         activeFocusTarget = plan.focusTarget;
+         activeShotName = shotPlan[playback.current].shot;
+         speakerIsA = isHostA(playback.turns[playback.current]?.speaker);
       }
+      const activeShot = shots[activeShotName] || shots.WIDE;
+      const activeFocusTarget = focusSubject(activeShotName, speakerIsA);
 
-      // ── Perform Cuts and Movements ──
-      // If the shot changed, cut instantly.
+      // Hard cut on a shot change, then a slow eased dolly-in while the shot holds
       if (camera.userData.currentShot !== activeShotName) {
-         camera.position.copy(activeCamTarget.pos);
-         camera.userData.targetLook.copy(activeCamTarget.look);
          camera.userData.currentShot = activeShotName;
-         
-         // Toggle foreground elements for close-ups
-         if (scene.userData.fgMicArm) {
-             const isCU = activeShotName === 'CU_A' || activeShotName === 'CU_B' || activeShotName.startsWith('OTS_');
-             scene.userData.fgMicArm.visible = isCU;
-         }
-      } else {
-         // Shot is identical, apply slow motivated movement instead of aggressive lerps
-         if (cameraMotion.pushIn || cameraMotion.slow_push) {
-            const speed = cameraMotion.pushIn ? 0.05 : 0.02;
-            const viewDir = activeCamTarget.look.clone().sub(camera.position).normalize();
-            camera.position.add(viewDir.multiplyScalar(speed * delta));
-         }
-         if (cameraMotion.orbit) {
-            camera.position.x += Math.sin(time * 0.1) * 0.02 * delta;
-            camera.position.z += Math.cos(time * 0.1) * 0.01 * delta;
-         }
+         shotStartTime = time;
+         camera.fov = activeShot.fov;
+         camera.updateProjectionMatrix();
       }
-      
-      // Camera Breathing (handheld documentary feel)
-      const handheldOffsetX = Math.sin(time * 0.4) * 0.002 + Math.cos(time * 1.1) * 0.001;
-      const handheldOffsetY = Math.cos(time * 0.5) * 0.002 + Math.sin(time * 1.3) * 0.001;
-      camera.position.x += handheldOffsetX;
-      camera.position.y += handheldOffsetY;
+      const shotAge = time - shotStartTime;
+      const dolly = activeShot.push * (1 - Math.exp(-shotAge / 6));
+      viewDir.subVectors(activeShot.look, activeShot.pos).normalize();
+      camera.position.copy(activeShot.pos).addScaledVector(viewDir, dolly);
 
-      camera.lookAt(camera.userData.targetLook);
+      // Camera Breathing (handheld documentary feel), applied as an offset so it never drifts
+      camera.position.x += Math.sin(time * 0.4) * 0.002 + Math.cos(time * 1.1) * 0.001;
+      camera.position.y += Math.cos(time * 0.5) * 0.002 + Math.sin(time * 1.3) * 0.001;
+      camera.lookAt(activeShot.look);
+
+      // Keep the recording caption pinned near the bottom of frame at any focal length
+      const halfFrameHeight = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
+      captionMesh.position.set(0, -halfFrameHeight * 0.74, -1);
+      captionMesh.scale.setScalar((halfFrameHeight * 2 * 0.16) / 0.55);
 
       // Environmental Animations & Audio Reactivity
 
@@ -1062,105 +994,54 @@ export default function VideoStudio({ slides, script }) {
       }
 
 
-      let audioNoise = 0;
-      if (playback.playing && !playback.paused) {
-         // High-frequency noise mimicking audio RMS
-         audioNoise = Math.max(0, (Math.sin(time * 40) + Math.sin(time * 60) * 0.5));
-      }
-
-      if (scene.userData.mics) {
-         scene.userData.mics.a.emissiveIntensity = (stateA === 'talk' || stateA === 'gesture') ? audioNoise * 2.5 + 0.5 : 0;
-         scene.userData.mics.b.emissiveIntensity = (stateB === 'talk' || stateB === 'gesture') ? audioNoise * 2.5 + 0.5 : 0;
-      }
-
       // Update GLB animation mixers
       for (const mixer of mixersRef.current) {
         mixer.update(delta);
       }
 
-      // ── Apply Bone-Level Gaze and Lip Sync (After mixer overrides it) ──
-      if (hostARef.current && hostBRef.current) {
-        const applyBones = (host, target, baseRot, isTalking) => {
-           const dx = target.x - host.position.x;
-           const dz = target.z - host.position.z;
-           let targetRotY = Math.atan2(dx, dz);
-           
-           // Clamp the requested global rotation
-           const maxTwist = Math.PI / 3;
-           if (targetRotY > baseRot + maxTwist) targetRotY = baseRot + maxTwist;
-           if (targetRotY < baseRot - maxTwist) targetRotY = baseRot - maxTwist;
-           
-           const deltaRot = targetRotY - baseRot;
-
-           if (host.userData.bones && host.userData.bones.head) {
-              // Micro-animation (breathing & drifting)
-              const breath = Math.sin(time * 2.5 + (host.position.x)) * 0.005;
-              const driftY = Math.sin(time * 1.5 + (host.position.x)) * 0.05;
-              const nod = (host.userData.activeAction?.name === 'listen' && Math.sin(time * 4) > 0.8) ? 0.05 : 0;
-              
-              if (host.userData.bones.spine) {
-                 host.userData.bones.spine.rotation.y = deltaRot * 0.05 + driftY;
-                 host.userData.bones.spine.position.y = host.userData.baseSpineY + breath * 1.5; // More pronounced
-              }
-              // Add subtle arm sway if arms exist
-              if (host.userData.bones.leftArm) {
-                 host.userData.bones.leftArm.rotation.z += Math.sin(time * 1.2) * 0.002;
-              }
-              if (host.userData.bones.rightArm) {
-                 host.userData.bones.rightArm.rotation.z -= Math.sin(time * 1.3) * 0.002;
-              }
-              if (host.userData.bones.neck) host.userData.bones.neck.rotation.y = deltaRot * 0.15;
-              if (host.userData.bones.head) {
-                 host.userData.bones.head.rotation.y = deltaRot * 0.30;
-                 host.userData.bones.head.rotation.x = nod; // micro nod
-              }
-              
-              // Simulate Lip-Sync
-              if (isTalking && audioNoise > 0.1) {
-                  const mouthOpen = audioNoise * 0.15; // Roughly 0 to 0.2 rad
-                  if (host.userData.bones.jaw) {
-                      host.userData.bones.jaw.rotation.x = mouthOpen;
-                  } else if (host.userData.meshWithMorphs) {
-                      const dict = host.userData.meshWithMorphs.morphTargetDictionary;
-                      const influences = host.userData.meshWithMorphs.morphTargetInfluences;
-                      for (const key in dict) {
-                          if (key.toLowerCase().includes('mouth') || key.toLowerCase().includes('jaw')) {
-                              influences[dict[key]] = mouthOpen * 3.0; // scale up for blendshape (0-1)
-                          }
-                      }
-                  } else {
-                      // Fallback: slightly rotate head up and down to simulate talking
-                      host.userData.bones.head.rotation.x += mouthOpen * 0.2;
-                  }
-              }
-
-              // Keep body slightly turned (lerped)
-              host.rotation.y += (baseRot + (deltaRot * 0.1) - host.rotation.y) * 0.1;
-           } else {
-              host.rotation.y += (targetRotY - host.rotation.y) * 0.1;
-           }
-        };
-
-        applyBones(hostARef.current, tmpLookA, hostARef.current.userData.baseRotationY || Math.PI/4, stateA === 'talk' || stateA === 'gesture');
-        applyBones(hostBRef.current, tmpLookB, hostBRef.current.userData.baseRotationY || -Math.PI/4, stateB === 'talk' || stateB === 'gesture');
+      // ── Host performance: gaze, speech rhythm and listening, layered after the mixer ──
+      const speakingA = stateA === 'talk' || stateA === 'gesture';
+      const speakingB = stateB === 'talk' || stateB === 'gesture';
+      let speechLevel = 0;
+      if (speakingA || speakingB) {
+        const analyser = analyserRef.current;
+        speechLevel = analyser
+          ? analyserLevel(analyser.node, analyser.buffer)
+          : speechEnvelopeRef.current.sample(now / 1000);
       }
+      const performerA = hostARef.current?.userData.performer;
+      const performerB = hostBRef.current?.userData.performer;
+      if (performerA && performerB) {
+        const phraseEndA = performerA.phraseEnded;
+        const phraseEndB = performerB.phraseEnded;
+        performerA.update({ time, delta, lookTarget: tmpLookA, speaking: speakingA, level: speechLevel, partnerPhraseEnded: phraseEndB });
+        performerB.update({ time, delta, lookTarget: tmpLookB, speaking: speakingB, level: speechLevel, partnerPhraseEnded: phraseEndA });
 
-      // Update Bokeh Focus Distance
-      if (bokehPassRef.current) {
-        let focusDist = camera.position.distanceTo(camera.userData.targetLook);
-        
-        if (activeFocusTarget === 'hostA' && hostARef.current) {
-           focusDist = camera.position.distanceTo(hostARef.current.position);
-        } else if (activeFocusTarget === 'hostB' && hostBRef.current) {
-           focusDist = camera.position.distanceTo(hostBRef.current.position);
-        } else if (activeFocusTarget === 'board') {
-           focusDist = camera.position.distanceTo(CAM_TARGETS.BOARD.look);
+        // Mic activity rings follow the speaker's voice
+        if (scene.userData.mics) {
+          scene.userData.mics.a.emissiveIntensity = speakingA ? 0.4 + performerA.level * 3 : 0;
+          scene.userData.mics.b.emissiveIntensity = speakingB ? 0.4 + performerB.level * 3 : 0;
         }
-        
-        // Lerp the focus distance for smooth racks
-        bokehPassRef.current.uniforms['focus'].value += (focusDist - bokehPassRef.current.uniforms['focus'].value) * 0.05;
       }
 
+      // Update Bokeh Focus Distance (rack to whoever the shot is about)
+      if (bokehPassRef.current) {
+        let focusDist = camera.position.distanceTo(activeShot.look);
+        if (activeFocusTarget === 'a' && hostARef.current) {
+           focusDist = camera.position.distanceTo(headA);
+        } else if (activeFocusTarget === 'b' && hostBRef.current) {
+           focusDist = camera.position.distanceTo(headB);
+        } else if (activeFocusTarget === 'board') {
+           focusDist = camera.position.distanceTo(boardCenter);
+        }
+
+        // Lerp focus and aperture for smooth racks; close shots get a shallower depth of field
+        const bokehUniforms = bokehPassRef.current.uniforms;
+        bokehUniforms['focus'].value += (focusDist - bokehUniforms['focus'].value) * 0.05;
+        bokehUniforms['aperture'].value += (activeShot.aperture - bokehUniforms['aperture'].value) * 0.1;
+      }
+
+      finishPass.uniforms.uTime.value = time;
       if (composerRef.current) {
         composerRef.current.render();
       } else {
@@ -1183,6 +1064,7 @@ export default function VideoStudio({ slides, script }) {
 
     // Cleanup Three.js setup
     return () => {
+      disposed = true;
       window.removeEventListener('resize', handleResize);
       cancelAnimationFrame(animationFrameRef.current);
       if (rendererRef.current && rendererRef.current.domElement) {
@@ -1224,8 +1106,8 @@ export default function VideoStudio({ slides, script }) {
       {/* Hidden 2D Canvas used for drawing blackboard texture */}
       <canvas
         ref={canvasRef}
-        width={1024}
-        height={512}
+        width={1280}
+        height={720}
         style={{ display: 'none' }}
       />
 
@@ -1265,12 +1147,12 @@ export default function VideoStudio({ slides, script }) {
             position: 'absolute', bottom: 20, left: '50%',
             transform: 'translateX(-50%)', width: '85%', maxWidth: '640px',
             background: 'rgba(10, 10, 15, 0.85)', backdropFilter: 'blur(8px)',
-            border: `1px solid ${turns[current]?.speaker?.toLowerCase().includes('alex') ? 'rgba(124, 108, 246, 0.4)' : 'rgba(236, 72, 153, 0.4)'}`,
+            border: `1px solid ${speakerColor(turns[current]?.speaker)}66`,
             borderRadius: 12, padding: '10px 18px', display: isRecording ? 'none' : 'flex',
             alignItems: 'center', gap: 12, zIndex: 10, boxShadow: '0 8px 32px rgba(0,0,0,0.5)'
           }}>
             <span style={{
-              background: turns[current]?.speaker?.toLowerCase().includes('alex') ? '#7c6cf6' : '#ec4899',
+              background: speakerColor(turns[current]?.speaker),
               color: 'white', fontSize: 10, fontWeight: 800, padding: '3px 8px',
               borderRadius: 6, textTransform: 'uppercase', letterSpacing: '0.05em', flexShrink: 0
             }}>

@@ -3,37 +3,75 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 
-export function setupAvatars(scene, avatarA, avatarB, hostARef, hostBRef, mixersRef) {
+import {
+  FLOOR_Y,
+  SEATS,
+  SEAT_TOP_Y,
+  HIP_ABOVE_SEAT,
+  HIP_SEAT_OFFSET,
+  HOST_STANDING_HEIGHT,
+  seatForward
+} from './layout.js';
+
+export function setupAvatars(scene, avatarA, avatarB, hostARef, hostBRef, mixersRef, onHostReady) {
   const gltfLoader = new GLTFLoader();
   gltfLoader.setMeshoptDecoder(MeshoptDecoder);
   const fbxLoader = new FBXLoader();
 
+  // Sit the posed skeleton into its chair: hips just above the cushion and
+  // pushed back toward the backrest, feet resting on the floor.
+  function seatModel(model, seat) {
+    model.updateMatrixWorld(true);
+    const hips = model.userData.bones.hips;
+    if (!hips) {
+      // No skeleton to seat by (e.g. an unrigged GLB): rest the bounds on the cushion.
+      const bounds = new THREE.Box3().setFromObject(model);
+      model.position.y += SEAT_TOP_Y - bounds.min.y;
+      return;
+    }
+
+    const hipsPos = hips.getWorldPosition(new THREE.Vector3());
+    let lowestFootY = Infinity;
+    model.traverse((child) => {
+      if (child.isBone && /foot|toe/i.test(child.name)) {
+        lowestFootY = Math.min(lowestFootY, child.getWorldPosition(new THREE.Vector3()).y);
+      }
+    });
+
+    const forward = seatForward(seat);
+    const target = new THREE.Vector3(
+      seat.x + forward.x * HIP_SEAT_OFFSET,
+      SEAT_TOP_Y + HIP_ABOVE_SEAT,
+      seat.z + forward.z * HIP_SEAT_OFFSET
+    );
+    if (Number.isFinite(lowestFootY)) {
+      // Foot bones sit a few centimetres above the sole; never sink below the floor.
+      const hipsAboveFeet = hipsPos.y - lowestFootY;
+      target.y = Math.max(target.y, FLOOR_Y + 0.03 + hipsAboveFeet);
+    }
+    model.position.add(target.sub(hipsPos));
+    model.updateMatrixWorld(true);
+  }
+
   // Load High-Resolution 3D Host Avatars from public folder GLBs.
-  // The source files are authored at a tiny scale, so fit them to the
+  // The source files are authored at different scales, so fit them to the
   // studio after loading instead of relying on their exported transforms.
-  function prepareHostModel(model, x, z, rotationY, animations = []) {
+  function prepareHostModel(model, key, animations = []) {
+    const seat = SEATS[key];
     model.updateMatrixWorld(true);
     const sourceBounds = new THREE.Box3().setFromObject(model);
     const sourceSize = sourceBounds.getSize(new THREE.Vector3());
-    const targetHeight = 1.55; // Fit to chair height
     if (sourceSize.y > 0) {
-      model.scale.multiplyScalar(targetHeight / sourceSize.y);
+      model.scale.multiplyScalar(HOST_STANDING_HEIGHT / sourceSize.y);
     }
 
-    model.updateMatrixWorld(true);
-    const fittedBounds = new THREE.Box3().setFromObject(model);
-    // Determine base position so the butt/legs rest on the chair seat (~0.25).
-    const basePosition = 0.25 - fittedBounds.min.y;
+    model.position.set(seat.x, 0, seat.z);
+    model.rotation.y = seat.rotY;
 
-    model.position.set(x, basePosition, z);
-    model.rotation.y = rotationY;
-
-    model.userData = { 
-      basePosition, 
-      baseRotationY: rotationY,
-      bones: { spine: null, neck: null, head: null }
+    model.userData = {
+      baseRotationY: seat.rotY,
+      bones: { hips: null, spine: null, neck: null, head: null }
     };
-
     model.traverse((child) => {
       if (child.isMesh) {
         child.castShadow = true;
@@ -55,6 +93,7 @@ export function setupAvatars(scene, avatarA, avatarB, hostARef, hostBRef, mixers
       }
       if (child.isBone) {
         const name = child.name.toLowerCase();
+        if (name.includes('hips') && !model.userData.bones.hips) model.userData.bones.hips = child;
         if (name.includes('spine') && !model.userData.bones.spine) {
           model.userData.bones.spine = child;
           model.userData.baseSpineY = child.position.y;
@@ -90,26 +129,31 @@ export function setupAvatars(scene, avatarA, avatarB, hostARef, hostBRef, mixers
       if (mixersRef && mixersRef.current) {
         mixersRef.current.push(mixer);
       }
+      // Pose the skeleton before seating so we measure the sitting pose.
+      mixer.update(0);
     }
+
+    seatModel(model, seat);
+    onHostReady?.(key, model);
   }
 
-  function loadAvatar(type, hostRef, x, z, rotationY) {
+  function loadAvatar(type, hostRef, key) {
     if (type.endsWith('.glb')) {
       gltfLoader.load(`/${type}`, (gltf) => {
         const model = gltf.scene;
-        prepareHostModel(model, x, z, rotationY, gltf.animations);
+        prepareHostModel(model, key, gltf.animations);
         hostRef.current = model;
       }, undefined, (err) => console.error(`Error loading ${type} GLB:`, err));
     } else if (type.endsWith('.fbx')) {
       fbxLoader.load(`/${type}`, (fbx) => {
         // FBX models often have a different scale or hierarchy, but we can process them similarly
         // FBX animations are stored directly on the loaded object
-        prepareHostModel(fbx, x, z, rotationY, fbx.animations);
+        prepareHostModel(fbx, key, fbx.animations);
         hostRef.current = fbx;
       }, undefined, (err) => console.error(`Error loading ${type} FBX:`, err));
     }
   }
 
-  loadAvatar(avatarA, hostARef, -1.55, 0.55, Math.PI / 6);
-  loadAvatar(avatarB, hostBRef, 1.55, 0.55, -Math.PI / 6);
+  loadAvatar(avatarA, hostARef, 'a');
+  loadAvatar(avatarB, hostBRef, 'b');
 }

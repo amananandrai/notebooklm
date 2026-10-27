@@ -40,6 +40,7 @@ export function setupBranding(scene) {
   });
 
   const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
   texture.premultiplyAlpha = true;
 
   const signMat = new THREE.MeshStandardMaterial({

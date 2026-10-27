@@ -2,10 +2,11 @@ import * as THREE from 'three';
 import { MAT, rand } from './materials.js';
 import { addMesh, createCylinder } from './helpers.js';
 import { createDetailedBook } from './shelves.js';
+import { DESK } from './layout.js';
 
 export function createTableDecor(scene) {
   const decor = new THREE.Group();
-  decor.position.set(0, 0.73, 0.55); // On top of desk surface
+  decor.position.set(DESK.x, DESK.topY, DESK.z); // On top of desk surface
 
   // 1. Matte Black Ceramic Coffee Mugs with C-handles
   function createStudioMug(x, z, rotY) {
@@ -33,8 +34,9 @@ export function createTableDecor(scene) {
     return mug;
   }
 
-  createStudioMug(-0.55, 0.25, 0.4);
-  createStudioMug(0.55, 0.25, -0.3);
+  // Within reach of each host at the back of the desk
+  createStudioMug(-0.72, -0.28, 0.4);
+  createStudioMug(0.74, -0.25, -0.3);
 
   // 2. Low-Profile Ceramic Succulent Dish (Center of Desk)
   const dishGroup = new THREE.Group();
