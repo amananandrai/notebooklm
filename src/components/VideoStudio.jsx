@@ -28,6 +28,7 @@ import { SEATS, seatForward } from './studio/layout.js';
 import { buildShots, planShots, focusSubject } from './studio/cameraRig.js';
 import { SPEAKER_COLORS, isHostA, speakerColor } from './studio/speakers.js';
 import { FinishShader } from './studio/finishShader.js';
+import { createTextEnvelope, analyserLevel, createHostPerformer } from './studio/performance.js';
 
 
 const EMPTY_LIST = [];
@@ -64,6 +65,9 @@ export default function VideoStudio({ slides, script }) {
   const [recordingError, setRecordingError] = useState('');
 
   const synthRef = useRef(window.speechSynthesis);
+  const speechEnvelopeRef = useRef(null);
+  if (!speechEnvelopeRef.current) speechEnvelopeRef.current = createTextEnvelope();
+  const analyserRef = useRef(null); // narration analyser while recording
   const timerRef = useRef(null);
   const turnIdxRef = useRef(0);
 
@@ -402,11 +406,18 @@ export default function VideoStudio({ slides, script }) {
     utter.pitch = isA ? 0.98 : 1.08;
 
     utter.onstart = () => {
+      speechEnvelopeRef.current.start(turn.text, performance.now() / 1000);
       setCurrent(idx);
       turnIdxRef.current = idx;
     };
 
+    // Word boundaries keep the estimated speech rhythm in step with the voice
+    utter.onboundary = (event) => {
+      if (event.name === 'word') speechEnvelopeRef.current.boundary(event.charIndex, performance.now() / 1000);
+    };
+
     utter.onend = () => {
+      speechEnvelopeRef.current.stop();
       setTimeout(() => {
         if (turnIdxRef.current === idx) {
           speakTurn(idx + 1);
@@ -445,9 +456,11 @@ export default function VideoStudio({ slides, script }) {
       speakTurn(0);
     } else if (paused) {
       synthRef.current.resume();
+      speechEnvelopeRef.current.resume(performance.now() / 1000);
       setPaused(false);
     } else {
       synthRef.current.pause();
+      speechEnvelopeRef.current.pause(performance.now() / 1000);
       setPaused(true);
     }
   }
@@ -458,6 +471,7 @@ export default function VideoStudio({ slides, script }) {
       return;
     }
     synthRef.current.cancel();
+    speechEnvelopeRef.current.stop();
     setPlaying(false);
     setPaused(false);
     setCurrent(-1);
@@ -485,6 +499,7 @@ export default function VideoStudio({ slides, script }) {
       recordingAudioUrlRef.current = null;
     }
     recordingDurationsRef.current = [];
+    analyserRef.current = null;
   }, []);
 
   const stopRecording = useCallback(() => {
@@ -548,6 +563,11 @@ export default function VideoStudio({ slides, script }) {
       const destination = audioContext.createMediaStreamDestination();
       source.connect(destination);
       source.connect(audioContext.destination);
+      // Analyse the narration so the hosts move with the real voice
+      const analyser = audioContext.createAnalyser();
+      analyser.fftSize = 1024;
+      source.connect(analyser);
+      analyserRef.current = { node: analyser, buffer: new Float32Array(analyser.fftSize) };
 
       // Force 1920x1080 internal resolution for capture
       rendererRef.current.setSize(1920, 1080, false);
@@ -799,6 +819,7 @@ export default function VideoStudio({ slides, script }) {
       // The head bone sits at the base of the skull; the mouth is just in front of it
       const mouth = anchor.head.clone().addScaledVector(anchor.forward, 0.09).add(new THREE.Vector3(0, -0.02, 0));
       mics.aimAt[key](mouth);
+      model.userData.performer = createHostPerformer(model, key === 'a' ? 1 : 2);
       shots = computeShots();
       camera.userData.currentShot = null; // re-frame the current shot on the real heads
     };
@@ -973,87 +994,34 @@ export default function VideoStudio({ slides, script }) {
       }
 
 
-      let audioNoise = 0;
-      if (playback.playing && !playback.paused) {
-         // High-frequency noise mimicking audio RMS
-         audioNoise = Math.max(0, (Math.sin(time * 40) + Math.sin(time * 60) * 0.5));
-      }
-
-      if (scene.userData.mics) {
-         scene.userData.mics.a.emissiveIntensity = (stateA === 'talk' || stateA === 'gesture') ? audioNoise * 2.5 + 0.5 : 0;
-         scene.userData.mics.b.emissiveIntensity = (stateB === 'talk' || stateB === 'gesture') ? audioNoise * 2.5 + 0.5 : 0;
-      }
-
       // Update GLB animation mixers
       for (const mixer of mixersRef.current) {
         mixer.update(delta);
       }
 
-      // ── Apply Bone-Level Gaze and Lip Sync (After mixer overrides it) ──
-      if (hostARef.current && hostBRef.current) {
-        const applyBones = (host, target, baseRot, isTalking) => {
-           const dx = target.x - host.position.x;
-           const dz = target.z - host.position.z;
-           let targetRotY = Math.atan2(dx, dz);
-           
-           // Clamp the requested global rotation
-           const maxTwist = Math.PI / 3;
-           if (targetRotY > baseRot + maxTwist) targetRotY = baseRot + maxTwist;
-           if (targetRotY < baseRot - maxTwist) targetRotY = baseRot - maxTwist;
-           
-           const deltaRot = targetRotY - baseRot;
+      // ── Host performance: gaze, speech rhythm and listening, layered after the mixer ──
+      const speakingA = stateA === 'talk' || stateA === 'gesture';
+      const speakingB = stateB === 'talk' || stateB === 'gesture';
+      let speechLevel = 0;
+      if (speakingA || speakingB) {
+        const analyser = analyserRef.current;
+        speechLevel = analyser
+          ? analyserLevel(analyser.node, analyser.buffer)
+          : speechEnvelopeRef.current.sample(now / 1000);
+      }
+      const performerA = hostARef.current?.userData.performer;
+      const performerB = hostBRef.current?.userData.performer;
+      if (performerA && performerB) {
+        const phraseEndA = performerA.phraseEnded;
+        const phraseEndB = performerB.phraseEnded;
+        performerA.update({ time, delta, lookTarget: tmpLookA, speaking: speakingA, level: speechLevel, partnerPhraseEnded: phraseEndB });
+        performerB.update({ time, delta, lookTarget: tmpLookB, speaking: speakingB, level: speechLevel, partnerPhraseEnded: phraseEndA });
 
-           if (host.userData.bones && host.userData.bones.head) {
-              // Micro-animation (breathing & drifting)
-              const breath = Math.sin(time * 2.5 + (host.position.x)) * 0.005;
-              const driftY = Math.sin(time * 1.5 + (host.position.x)) * 0.05;
-              const nod = (host.userData.activeAction?.name === 'listen' && Math.sin(time * 4) > 0.8) ? 0.05 : 0;
-              
-              if (host.userData.bones.spine) {
-                 host.userData.bones.spine.rotation.y = deltaRot * 0.1 + driftY;
-                 host.userData.bones.spine.position.y = host.userData.baseSpineY + breath * 1.5; // More pronounced
-              }
-              // Add subtle arm sway if arms exist
-              if (host.userData.bones.leftArm) {
-                 host.userData.bones.leftArm.rotation.z += Math.sin(time * 1.2) * 0.002;
-              }
-              if (host.userData.bones.rightArm) {
-                 host.userData.bones.rightArm.rotation.z -= Math.sin(time * 1.3) * 0.002;
-              }
-              if (host.userData.bones.neck) host.userData.bones.neck.rotation.y = deltaRot * 0.25;
-              if (host.userData.bones.head) {
-                 host.userData.bones.head.rotation.y = deltaRot * 0.45;
-                 host.userData.bones.head.rotation.x = nod; // micro nod
-              }
-              
-              // Simulate Lip-Sync
-              if (isTalking && audioNoise > 0.1) {
-                  const mouthOpen = audioNoise * 0.15; // Roughly 0 to 0.2 rad
-                  if (host.userData.bones.jaw) {
-                      host.userData.bones.jaw.rotation.x = mouthOpen;
-                  } else if (host.userData.meshWithMorphs) {
-                      const dict = host.userData.meshWithMorphs.morphTargetDictionary;
-                      const influences = host.userData.meshWithMorphs.morphTargetInfluences;
-                      for (const key in dict) {
-                          if (key.toLowerCase().includes('mouth') || key.toLowerCase().includes('jaw')) {
-                              influences[dict[key]] = mouthOpen * 3.0; // scale up for blendshape (0-1)
-                          }
-                      }
-                  } else {
-                      // Fallback: slightly rotate head up and down to simulate talking
-                      host.userData.bones.head.rotation.x += mouthOpen * 0.2;
-                  }
-              }
-
-              // Keep body slightly turned (lerped)
-              host.rotation.y += (baseRot + (deltaRot * 0.1) - host.rotation.y) * 0.1;
-           } else {
-              host.rotation.y += (targetRotY - host.rotation.y) * 0.1;
-           }
-        };
-
-        applyBones(hostARef.current, tmpLookA, hostARef.current.userData.baseRotationY || Math.PI/4, stateA === 'talk' || stateA === 'gesture');
-        applyBones(hostBRef.current, tmpLookB, hostBRef.current.userData.baseRotationY || -Math.PI/4, stateB === 'talk' || stateB === 'gesture');
+        // Mic activity rings follow the speaker's voice
+        if (scene.userData.mics) {
+          scene.userData.mics.a.emissiveIntensity = speakingA ? 0.4 + performerA.level * 3 : 0;
+          scene.userData.mics.b.emissiveIntensity = speakingB ? 0.4 + performerB.level * 3 : 0;
+        }
       }
 
       // Update Bokeh Focus Distance (rack to whoever the shot is about)
