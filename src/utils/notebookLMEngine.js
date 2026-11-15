@@ -1,3 +1,5 @@
+import { apiFetch } from './api';
+
 /**
  * Single JSON-RPC client for the NotebookLM MCP server.
  * The endpoint comes from the saved MCP config, or defaults to the local
@@ -28,7 +30,7 @@ export function getMCPEndpoint() {
 }
 
 export async function callMCP(toolName, args) {
-  const res = await fetch(getMCPEndpoint(), {
+  const res = await apiFetch(getMCPEndpoint(), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -38,6 +40,7 @@ export async function callMCP(toolName, args) {
       params: { name: toolName, arguments: args },
     }),
   });
+  if (res.status === 413) throw new Error('This document is too large to process.');
   if (!res.ok) throw new Error(`MCP HTTP error ${res.status}: ${res.statusText}`);
 
   const json = await res.json();

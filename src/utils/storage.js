@@ -1,6 +1,4 @@
-const API_BASE = window.location.origin.includes('5173') || window.location.origin.includes('localhost')
-  ? 'http://127.0.0.1:8080/api'
-  : '/api';
+import { API_BASE, apiFetch } from './api';
 
 // Fallback key-value storage in case MongoDB is down or loading fails
 const memStore = {
@@ -15,6 +13,10 @@ let usingFallback = false;
 const fallbackListeners = new Set();
 
 function markFallback(op, err) {
+  if (err?.status === 401 || err?.status === 429) {
+    console.warn(`Backend ${op} rejected (${err.status}):`, err.message);
+    return; // auth prompt / rate-limit message handle these; the server is reachable
+  }
   console.warn(`Backend ${op} failed, using in-memory fallback:`, err);
   if (!usingFallback) {
     usingFallback = true;
@@ -32,7 +34,7 @@ export function onFallbackChange(fn) {
 // ── Projects ──
 export async function loadProjects() {
   try {
-    const res = await fetch(`${API_BASE}/projects`);
+    const res = await apiFetch(`${API_BASE}/projects`);
     if (!res.ok) throw new Error('API server error');
     const data = await res.json();
     memStore.projects = data;
@@ -57,7 +59,7 @@ export async function createProject({ name, description, color, color2, icon }) 
   };
 
   try {
-    const res = await fetch(`${API_BASE}/projects`, {
+    const res = await apiFetch(`${API_BASE}/projects`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(project),
@@ -72,7 +74,7 @@ export async function createProject({ name, description, color, color2, icon }) 
 
 export async function deleteProject(projectId) {
   try {
-    const res = await fetch(`${API_BASE}/projects/${projectId}`, { method: 'DELETE' });
+    const res = await apiFetch(`${API_BASE}/projects/${projectId}`, { method: 'DELETE' });
     if (!res.ok) throw new Error('API error');
   } catch (err) {
     markFallback('deleteProject', err);
@@ -84,7 +86,7 @@ export async function deleteProject(projectId) {
 export async function saveDocument(projectId, doc) {
   const payload = { ...doc, projectId };
   try {
-    const res = await fetch(`${API_BASE}/documents`, {
+    const res = await apiFetch(`${API_BASE}/documents`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
@@ -103,7 +105,7 @@ export async function saveDocument(projectId, doc) {
 
 export async function getDocument(docId) {
   try {
-    const res = await fetch(`${API_BASE}/documents/${docId}`);
+    const res = await apiFetch(`${API_BASE}/documents/${docId}`);
     if (res.status === 404) return null;
     if (!res.ok) throw new Error('API error');
     return res.json();
@@ -115,7 +117,7 @@ export async function getDocument(docId) {
 
 export async function loadDocumentsForProject(projectId, sourceIds = []) {
   try {
-    const res = await fetch(`${API_BASE}/projects/${projectId}/documents`);
+    const res = await apiFetch(`${API_BASE}/projects/${projectId}/documents`);
     if (!res.ok) throw new Error('API error');
     const docs = await res.json();
     if (docs && docs.length > 0) return docs;
@@ -135,7 +137,7 @@ export async function loadDocumentsForProject(projectId, sourceIds = []) {
 
 export async function deleteDocument(projectId, docId) {
   try {
-    const res = await fetch(`${API_BASE}/documents/${projectId}/${docId}`, { method: 'DELETE' });
+    const res = await apiFetch(`${API_BASE}/documents/${projectId}/${docId}`, { method: 'DELETE' });
     if (!res.ok) throw new Error('API error');
   } catch (err) {
     markFallback('deleteDocument', err);
@@ -150,7 +152,7 @@ export async function saveArtifact(projectId, docId, featureType, data) {
   const key = `${projectId}_${docId}_${featureType}`;
   const payload = { key, projectId, docId, featureType, data };
   try {
-    const res = await fetch(`${API_BASE}/artifacts`, {
+    const res = await apiFetch(`${API_BASE}/artifacts`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
@@ -165,7 +167,7 @@ export async function saveArtifact(projectId, docId, featureType, data) {
 export async function getArtifact(projectId, docId, featureType) {
   const key = `${projectId}_${docId}_${featureType}`;
   try {
-    const res = await fetch(`${API_BASE}/artifacts/${projectId}/${docId}/${featureType}`);
+    const res = await apiFetch(`${API_BASE}/artifacts/${projectId}/${docId}/${featureType}`);
     if (!res.ok) throw new Error('API error');
     return res.json();
   } catch (err) {
@@ -187,7 +189,7 @@ export async function deleteArtifactsForDoc(projectId, docId) {
 export async function createNote(projectId, note) {
   const payload = { ...note, projectId };
   try {
-    const res = await fetch(`${API_BASE}/notes`, {
+    const res = await apiFetch(`${API_BASE}/notes`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
@@ -202,7 +204,7 @@ export async function createNote(projectId, note) {
 
 export async function loadNotes(projectId) {
   try {
-    const res = await fetch(`${API_BASE}/notes/${projectId}`);
+    const res = await apiFetch(`${API_BASE}/notes/${projectId}`);
     if (!res.ok) throw new Error('API error');
     return res.json();
   } catch (err) {
@@ -213,7 +215,7 @@ export async function loadNotes(projectId) {
 
 export async function deleteNote(noteId) {
   try {
-    const res = await fetch(`${API_BASE}/notes/${noteId}`, { method: 'DELETE' });
+    const res = await apiFetch(`${API_BASE}/notes/${noteId}`, { method: 'DELETE' });
     if (!res.ok) throw new Error('API error');
   } catch (err) {
     markFallback('deleteNote', err);
