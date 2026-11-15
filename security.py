@@ -129,13 +129,11 @@ LIMITS = {
     "general": [(_int_env("RATE_LIMIT_GENERAL_PER_MIN", 240), 60)],
     "ai": [(_int_env("RATE_LIMIT_AI_PER_MIN", 20), 60), (_int_env("RATE_LIMIT_AI_PER_HOUR", 200), 3600)],
     "tts": [(_int_env("RATE_LIMIT_TTS_PER_MIN", 10), 60)],
-    "render": [(_int_env("RATE_LIMIT_RENDER_PER_HOUR", 10), 3600)],
     # Failed authentication attempts, per client IP (brute-force protection).
     "auth_fail": [(_int_env("RATE_LIMIT_AUTH_FAIL_PER_5MIN", 10), 300)],
 }
 MAX_BODY_BYTES = _int_env("MAX_REQUEST_BYTES", 8 * 1024 * 1024)
 MAX_DOC_CHARS = _int_env("MAX_DOCUMENT_CHARS", 600_000)
-MAX_CONCURRENT_RENDERS = _int_env("MAX_CONCURRENT_RENDERS", 2)
 
 
 def client_ip(request: Request) -> str:

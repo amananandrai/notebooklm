@@ -8,8 +8,8 @@ chat assistant that answers from the document with page citations.
 - **Frontend:** React 19 + Vite (`src/`). PDFs are parsed in the browser with
   PDF.js; pages with no text layer fall back to Tesseract OCR.
 - **Backend:** FastAPI (`mcp_server.py`) exposing a JSON-RPC `/mcp` endpoint for
-  the AI tools (Gemini) and a REST `/api` for storage (MongoDB), narration and
-  video rendering. `api/index.py` wraps it for Vercel.
+  the AI tools (Gemini) and a REST `/api` for storage (MongoDB) and narration.
+  `api/index.py` wraps it for Vercel.
 
 ## Quick start
 
@@ -33,18 +33,12 @@ Documents up to 60,000 characters go to the model unchanged. Longer ones are
 condensed chunk by chunk (map-reduce) so later pages are still covered. Chat
 picks the most relevant pages by keyword and cites them as `[Page N]`.
 
-## Video features
+## 3D Video Studio
 
-| Feature | Needs |
-|---|---|
-| 3D Video Studio narration (`/api/tts`) | A speech engine: Windows SAPI, Gemini TTS (`GEMINI_API_KEY`), or `espeak-ng`. Choose with `TTS_BACKEND`. |
-| MP4 export (Remotion) | Node.js on the server; runs `npx remotion render`. |
-| HyperFrames export | `npm install -g hyperframes`. |
-
-Rendering runs local processes, so it does not work on Vercel's serverless
-functions; run the backend on a regular server for video export. On failure the
-last lines of the render log are shown in the UI (full logs in `renders/`).
-Outputs older than `RENDER_RETENTION_HOURS` are deleted automatically.
+The studio renders the podcast scene in the browser (three.js) and records it
+with the browser's MediaRecorder. Narration comes from `/api/tts`, which picks a
+speech engine: Windows SAPI on Windows, Gemini TTS when `GEMINI_API_KEY` is set,
+otherwise `espeak-ng`. Force one with `TTS_BACKEND`.
 
 ## Deploying to Vercel
 
@@ -59,8 +53,8 @@ Long documents can exceed the default function timeout; raise `maxDuration` if n
 The API (`/api/*` and `/mcp`) requires an access key when `APP_ACCESS_KEYS` is set.
 
 - Clients send `Authorization: Bearer <key>`; the web app prompts for the key on first use and stores it in `localStorage`.
-- Every key has its own private data (projects, documents, artifacts, notes, render jobs).
-- Requests are rate limited per key (per IP when auth is off); AI generation, TTS and video rendering have tighter limits. Repeated wrong keys lock an IP out for 5 minutes. All limits are configurable — see `.env.example`.
+- Every key has its own private data (projects, documents, artifacts, notes).
+- Requests are rate limited per key (per IP when auth is off); AI generation and TTS have tighter limits. Repeated wrong keys lock an IP out for 5 minutes. All limits are configurable — see `.env.example`.
 - With no keys configured the API is open **only when running locally**; on Vercel it refuses all requests until keys are set.
 - Rate-limit counters are in memory, per server process. On serverless hosts each instance counts separately, so add a shared limiter (e.g. Upstash/Redis) in front for a hard global cap.
 - **Existing data:** documents saved before auth was enabled have no owner and become invisible once keys are set. Assign them to a key's owner id (first 16 hex chars of `sha256(key)`), e.g. in the Mongo shell:

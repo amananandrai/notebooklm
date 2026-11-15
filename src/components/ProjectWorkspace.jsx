@@ -7,9 +7,8 @@ import SlidesWithImagesViewer from './SlidesWithImagesViewer';
 import InfographicViewer from './InfographicViewer';
 import StudyGuideViewer from './StudyGuideViewer';
 import ChatAssistant from './ChatAssistant';
-// Heavy, rarely-opened tabs load on demand (three.js studio, Remotion, OCR).
+// Heavy, rarely-opened tabs load on demand (three.js studio, OCR).
 const VideoStudio = lazy(() => import('./VideoStudio'));
-const HyperFramesStudio = lazy(() => import('../video/HyperFramesStudio'));
 import ReportViewer from './ReportViewer';
 import SynthesisViewer from './SynthesisViewer';
 import DataTableViewer from './DataTableViewer';
@@ -33,7 +32,6 @@ const TABS = [
   { id: 'video',       label: 'Video Studio', icon: '🎬' },
   { id: 'studyguide',  label: 'Study Guide',  icon: '📕' },
   { id: 'synthesis',   label: 'Synthesis',    icon: '🔗' },
-  { id: 'hyperframes', label: 'HF HyperFrames', icon: '⚡' },
   { id: 'chat',        label: 'Chat',         icon: '💬' },
 ];
 
@@ -48,7 +46,6 @@ const TAB_META = {
   video:       { title: '3D Video Studio', icon: '🎬', desc: 'Interactive 3D presentation studio with AI hosts and blackboard.', feats: ['Interactive 3D avatars', 'Blackboard sync', 'Live presentation recording'] },
   studyguide:  { title: 'Study Guide',  icon: '📕', desc: 'Flashcards and quiz questions to master your document content.', feats: ['3D Flip Flashcards', 'Practice Quiz', 'Mastery tracking'] },
   synthesis:   { title: 'Cross-Doc Synthesis', icon: '🔗', desc: 'Analyze all uploaded sources together to find shared themes, contradictions, and unified insights.', feats: ['Common theme detection', 'Contradiction analysis', 'Unified recommendations'] },
-  hyperframes: { title: 'HyperFrames Render', icon: '⚡', desc: 'Render video timeline using HyperFrames HTML rendering engine.', feats: ['HTML Composition', 'Asynchronous Render Worker', 'Vercel Sandbox Renderer'] },
   chat:        { title: 'Chat Assistant', icon: '💬', desc: 'Ask questions and chat directly with Gemini AI about your document.', feats: ['Strict document grounding', 'Source citations', 'Download chat log'] },
 };
 
@@ -476,15 +473,6 @@ export default function ProjectWorkspace({ project, onBack }) {
           }}
         />
       );
-    }
-
-    if (activeTab === 'hyperframes') {
-      const audioData = artifacts[`${activeDocId}_audio`];
-      const slidesData = artifacts[`${activeDocId}_slides`];
-      if (!audioData || !slidesData) {
-        return <div className="studio-empty"><div className="studio-empty-icon">HF</div><div className="studio-empty-title">Generate audio and slides first</div><div className="studio-empty-desc">HyperFrames uses the same narration and slide data as Video Studio.</div><button className="btn-generate" onClick={() => handleTabChange(!audioData ? 'audio' : 'slides')}>Go to Generate →</button></div>;
-      }
-      return <div style={{ height: '100%' }}><Suspense fallback={<TabLoading />}><HyperFramesStudio slides={slidesData} script={audioData} /></Suspense></div>;
     }
 
     if (activeTab === 'video') {

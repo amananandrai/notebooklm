@@ -1,9 +1,6 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
 import { HDRLoader as RGBELoader } from 'three/examples/jsm/loaders/HDRLoader.js';
-import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
@@ -11,9 +8,7 @@ import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { BokehPass } from 'three/examples/jsm/postprocessing/BokehPass.js';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 // Studio Module Imports
-import { MAT, rand } from './studio/materials.js';
-import { addMesh, createBox, createCylinder } from './studio/helpers.js';
-import { createHeroPlant, createTrailingPlant } from './studio/plants.js';
+import { createHeroPlant } from './studio/plants.js';
 import { createDetailedShelf } from './studio/shelves.js';
 import { createPremiumDesk } from './studio/desk.js';
 import { createChair } from './studio/chairs.js';
