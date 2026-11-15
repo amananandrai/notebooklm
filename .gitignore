@@ -2,7 +2,6 @@ node_modules
 .env
 dist
 .DS_Store
-.github
 *.log
 .system_generated
 .agents

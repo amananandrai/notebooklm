@@ -25,7 +25,7 @@ import { SPEAKER_COLORS, isHostA, speakerColor } from './studio/speakers.js';
 import { FinishShader } from './studio/finishShader.js';
 import { createTextEnvelope, analyserLevel, createHostPerformer } from './studio/performance.js';
 
-import { API_BASE, apiFetch } from '../utils/api';
+import { synthesizeSpeech } from '../api/endpoints';
 
 const EMPTY_LIST = [];
 
@@ -533,16 +533,7 @@ export default function VideoStudio({ slides, script }) {
     try {
       // Generate a real WAV narration first so recording never opens a
       // screen-sharing picker.
-      const ttsResponse = await apiFetch(`${API_BASE}/tts`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ turns }),
-      });
-      if (!ttsResponse.ok) {
-        const detail = await ttsResponse.text();
-        throw new Error(detail || 'The local speech service is unavailable.');
-      }
-      const ttsData = await ttsResponse.json();
+      const ttsData = await synthesizeSpeech(turns);
       const binary = Uint8Array.from(atob(ttsData.audioBase64), char => char.charCodeAt(0));
       const audioUrl = URL.createObjectURL(new Blob([binary], { type: 'audio/wav' }));
       const audio = new Audio(audioUrl);

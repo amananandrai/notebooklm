@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { loadProjects, deleteProject } from '../utils/storage';
+import { useState } from 'react';
+import { useDeleteProject, useProjects } from '../hooks/queries';
 
 const PROJECT_COLORS = [
   { color: '#7c6cf6', color2: '#6c5ce7', label: 'Purple' },
@@ -13,27 +13,21 @@ const PROJECT_COLORS = [
 const PROJECT_ICONS = ['📚', '🔬', '💡', '🌍', '📊', '🧠', '⚡', '🎯', '🏗️', '🎓', '🔭', '🧬'];
 
 export default function ProjectsHome({ onOpenProject, onCreateProject }) {
-  const [projects, setProjects] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const projectsQuery = useProjects();
+  const projects = projectsQuery.data || [];
+  const loading = projectsQuery.isLoading;
+  const removeProject = useDeleteProject();
   const [menuOpen, setMenuOpen] = useState(null);
-
-  useEffect(() => {
-    async function fetchProjects() {
-      const data = await loadProjects();
-      setProjects(data || []);
-      setLoading(false);
-    }
-    fetchProjects();
-  }, []);
 
   async function handleDelete(e, projectId) {
     e.stopPropagation();
-    if (confirm('Delete this project and all its data?')) {
-      await deleteProject(projectId);
-      const data = await loadProjects();
-      setProjects(data || []);
-    }
     setMenuOpen(null);
+    if (!confirm('Delete this project and all its data?')) return;
+    try {
+      await removeProject.mutateAsync(projectId);
+    } catch (err) {
+      alert(`Could not delete the project: ${err.message}`);
+    }
   }
 
   function formatDate(iso) {

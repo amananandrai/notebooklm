@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { setAccessKey } from '../utils/api';
+import { setAccessKey } from '../api/client';
 
 export default function AccessKeyPrompt({ rejected }) {
   const [value, setValue] = useState('');

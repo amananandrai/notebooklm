@@ -1,8 +1,8 @@
-# Entrypoint wrapper for Vercel Python runtime
-import sys
+# Entrypoint for the Vercel Python runtime.
 import os
+import sys
 
-# Insert parent directory so mcp_server.py can be imported correctly
+# Make the project root importable so the `app` package resolves.
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from mcp_server import app
+from app.main import app  # noqa: E402,F401
