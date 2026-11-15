@@ -72,10 +72,18 @@ export default function ChatAssistant({ docTitle, onAskQuestion, initialMessages
     URL.revokeObjectURL(url);
   }
 
+  // Escape everything first, then apply a small whitelist of formatting, so
+  // model output (which can echo text from uploaded PDFs) can never inject HTML.
   function renderText(text) {
-    // Simple markdown: bold, newlines
-    return text
-      .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+    const escaped = String(text ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+    return escaped
+      .replace(/`([^`\n]+)`/g, '<code>$1</code>')
+      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
       .replace(/\n/g, '<br/>');
   }
 

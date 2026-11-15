@@ -490,6 +490,103 @@ def call_gemini(prompt: str) -> str:
     raise last_err or RuntimeError("All Gemini model endpoints failed.")
 
 
+
+# ── LONG-DOCUMENT HANDLING ───────────────────────────────────────────────────
+# Instead of silently cutting documents at a fixed length, text that exceeds the
+# direct-context budget is condensed with a map-reduce pass (every chunk is
+# summarised, so late pages are still represented). Chat uses keyword retrieval
+# over chunks so answers can come from anywhere in the document.
+
+MAX_DIRECT_CHARS = 60000      # sent verbatim to the model
+CHUNK_CHARS = 12000
+CHAT_CONTEXT_CHARS = 30000
+_condense_cache: dict = {}
+
+
+def split_chunks(text: str, size: int = CHUNK_CHARS) -> list:
+    """Split on paragraph/sentence boundaries into chunks of roughly `size` chars."""
+    chunks, current = [], ""
+    for para in re.split(r"(?<=\n)|(?<=[.!?])\s+", text):
+        if not para:
+            continue
+        while len(para) > size:  # pathological text with no boundaries
+            if current:
+                chunks.append(current)
+                current = ""
+            chunks.append(para[:size])
+            para = para[size:]
+        if len(current) + len(para) > size and current:
+            chunks.append(current)
+            current = ""
+        current += para + " "
+    if current.strip():
+        chunks.append(current)
+    return [c.strip() for c in chunks if c.strip()]
+
+
+def condense_text(text: str, budget: int = MAX_DIRECT_CHARS) -> str:
+    """Return text unchanged if it fits `budget`; otherwise map-reduce it down."""
+    if len(text) <= budget:
+        return text
+    key = (hash(text), budget)
+    if key in _condense_cache:
+        return _condense_cache[key]
+
+    chunks = split_chunks(text)
+    per_chunk = max(500, budget // len(chunks))
+    notes = [None] * len(chunks)
+
+    def summarise(i):
+        prompt = f"""Condense this section ({i + 1}/{len(chunks)}) of a longer document into dense notes of at most {per_chunk} characters.
+Keep every key fact, figure, name, date, definition and argument. Preserve the original order. No preamble.
+
+Section:
+{chunks[i]}"""
+        try:
+            return call_gemini(prompt).strip()[:per_chunk * 2]
+        except Exception as e:
+            print(f"[condense] chunk {i} failed, using truncated raw text: {e}")
+            return chunks[i][:per_chunk]
+
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        for i, note in enumerate(pool.map(summarise, range(len(chunks)))):
+            notes[i] = f"[Part {i + 1}/{len(chunks)}]\n{note}"
+
+    result = "\n\n".join(notes)[:budget * 2]
+    if len(_condense_cache) > 32:
+        _condense_cache.clear()
+    _condense_cache[key] = result
+    return result
+
+
+def retrieve_context(question: str, text: str, budget: int = CHAT_CONTEXT_CHARS) -> str:
+    """Pick the chunks most relevant to `question` (keyword/TF scoring), in document order."""
+    if len(text) <= budget:
+        return text
+    chunks = split_chunks(text, 3000)
+    terms = {w for w in re.findall(r"[a-z0-9]{3,}", question.lower())}
+    stop = {"the", "and", "what", "which", "that", "this", "with", "from", "for", "are", "was", "how", "why", "does", "about", "who", "when", "where"}
+    terms -= stop
+
+    def score(chunk):
+        words = re.findall(r"[a-z0-9]{3,}", chunk.lower())
+        if not words or not terms:
+            return 0
+        return sum(words.count(t) for t in terms) / (len(words) ** 0.5)
+
+    ranked = sorted(range(len(chunks)), key=lambda i: score(chunks[i]), reverse=True)
+    picked, used = {0}, len(chunks[0])  # always keep the opening for overall context
+    for i in ranked:
+        if i in picked:
+            continue
+        if used + len(chunks[i]) > budget:
+            continue
+        picked.add(i)
+        used += len(chunks[i])
+    return "\n\n[...]\n\n".join(chunks[i] for i in sorted(picked))
+
+
 def parse_json(text: str):
     cleaned = re.sub(r"```(?:json)?\s*", "", text).replace("```", "").strip()
     # Find first [ or { and last ] or }
@@ -539,7 +636,7 @@ async def handle_mcp(request: Request):
         args = params.get("arguments", {})
         print(f"[DEBUG MCP Call] tool={tool} arguments={list(args.keys()) if args else None}")
         title = args.get("documentTitle", "Document")
-        text = args.get("rawText", "")[:12000]  # cap tokens
+        raw_text = args.get("rawText", "") or ""
         clean_title = re.sub(r"\.pdf$", "", title, flags=re.IGNORECASE)
 
         try:
@@ -547,6 +644,13 @@ async def handle_mcp(request: Request):
             theme = str(args.get("theme") or "light_slate")
             audio_length = str(args.get("audioLength") or args.get("lengthMode") or "standard")
             audio_tone = str(args.get("audioTone") or args.get("tone") or "casual")
+
+            if tool == "answer_question":
+                text = retrieve_context(args.get("question", ""), raw_text)
+            elif tool == "generate_project_synthesis":
+                text = raw_text
+            else:
+                text = condense_text(raw_text)
 
             if tool == "generate_mindmap":
                 result = gen_mindmap(clean_title, text)
@@ -569,7 +673,7 @@ async def handle_mcp(request: Request):
             elif tool == "generate_project_synthesis":
                 texts = args.get("documents", [])
                 if not texts:
-                    texts = [{"title": title, "text": text}]
+                    texts = [{"title": title, "text": raw_text}]
                 result = gen_project_synthesis(texts)
             else:
                 return {"jsonrpc": "2.0", "id": rpc_id, "error": {"code": -32601, "message": f"Unknown tool: {tool}"}}
@@ -892,7 +996,10 @@ Extract real data from the document. Create 4-6 meaningful columns and 5-8 rows 
 
 
 def gen_project_synthesis(texts: list) -> dict:
-    combined = "\n\n---DOCUMENT SEPARATOR---\n\n".join([f"[{t['title']}]:\n{t['text']}" for t in texts])
+    per_doc = max(4000, MAX_DIRECT_CHARS // max(1, len(texts)))
+    combined = "\n\n---DOCUMENT SEPARATOR---\n\n".join(
+        [f"[{t['title']}]:\n{condense_text(t.get('text', '') or '', per_doc)}" for t in texts]
+    )
     prompt = f"""You are analyzing multiple documents together. Create a cross-document synthesis report. Return ONLY valid JSON (no markdown fences):
 {{
   "synthesisTitle": "<title for the cross-document analysis>",
@@ -915,7 +1022,7 @@ def gen_project_synthesis(texts: list) -> dict:
 }}
 
 Documents:
-{combined[:15000]}
+{combined}
 
 All analysis must be grounded in actual document content. Identify real overlaps and differences."""
     return parse_json(call_gemini(prompt))
