@@ -1,6 +1,7 @@
 /**
  * Shared fetch wrapper for the NotebookLM API.
- *  - sends the saved access key as `Authorization: Bearer <key>`
+ *  - sends the saved access key as `Authorization: Bearer <key>`, but only to
+ *    this app's own API origin (see isTrustedApiUrl)
  *  - on 401 clears the rejected key and asks the UI to prompt for a new one
  *  - on 429 throws a readable "try again in Ns" error
  */
@@ -41,14 +42,30 @@ async function errorDetail(res) {
   return res.statusText || `HTTP ${res.status}`;
 }
 
+/**
+ * True when `url` points at this app's own API server. The access key is only
+ * ever sent there, never to a custom MCP server URL typed into settings.
+ */
+export function isTrustedApiUrl(url) {
+  try {
+    const target = new URL(url, window.location.href).origin;
+    const api = new URL(API_ORIGIN || window.location.origin, window.location.href).origin;
+    // localhost and 127.0.0.1 are the same local dev server
+    const local = api.replace('://127.0.0.1', '://localhost');
+    return target === api || target === local || target === window.location.origin;
+  } catch {
+    return false;
+  }
+}
+
 export async function apiFetch(url, options = {}) {
   const headers = new Headers(options.headers || {});
-  const key = getAccessKey();
+  const key = isTrustedApiUrl(url) ? getAccessKey() : '';
   if (key) headers.set('Authorization', `Bearer ${key}`);
 
   const res = await fetch(url, { ...options, headers });
 
-  if (res.status === 401) {
+  if (res.status === 401 && isTrustedApiUrl(url)) {
     const hadKey = Boolean(key);
     clearAccessKey();
     window.dispatchEvent(new CustomEvent(AUTH_REQUIRED_EVENT, { detail: { rejected: hadKey } }));

@@ -5,7 +5,7 @@ import { getMCPConfig, setMCPConfig } from '../utils/notebookLMEngine';
 export default function MCPConfigModal({ onClose }) {
   const currentConfig = getMCPConfig();
   const [mode, setMode] = useState(currentConfig.mode || 'internal');
-  const [serverUrl, setServerUrl] = useState(currentConfig.serverUrl || 'http://localhost:8000/mcp');
+  const [serverUrl, setServerUrl] = useState(currentConfig.serverUrl || 'http://127.0.0.1:8080/mcp');
   const [savedSuccess, setSavedSuccess] = useState(false);
 
   const handleSave = () => {
@@ -97,10 +97,13 @@ export default function MCPConfigModal({ onClose }) {
               type="text"
               value={serverUrl}
               onChange={(e) => setServerUrl(e.target.value)}
-              placeholder="http://localhost:8000/mcp"
+              placeholder="http://127.0.0.1:8080/mcp"
               className="glass-input"
               style={{ width: '100%', fontSize: '0.88rem' }}
             />
+            <p style={{ margin: '6px 0 0', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+              Your access key is only sent to this app's own server, not to other MCP URLs.
+            </p>
           </div>
         )}
 

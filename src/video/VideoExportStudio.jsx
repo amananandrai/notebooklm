@@ -36,7 +36,7 @@ export default function VideoExportStudio({ slides, script }) {
         } else if (status.status === 'complete') {
           setRenderState({ status: 'complete', message: 'MP4 render complete.', jobId: result.jobId, downloadPath: status.downloadUrl });
         } else {
-          setRenderState({ status: 'error', message: status.message || 'Remotion render failed.' });
+          setRenderState({ status: 'error', message: [status.message || 'Remotion render failed.', status.log?.split('\n').pop()].filter(Boolean).join(' — ') });
         }
       };
       window.setTimeout(poll, 1500);

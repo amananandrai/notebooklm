@@ -13,6 +13,10 @@ import time
 import urllib.request
 import urllib.error
 import wave
+import platform
+import sys
+from contextlib import asynccontextmanager
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, List, Optional, Union
 from fastapi import FastAPI, Request, HTTPException, Depends
 from fastapi.responses import JSONResponse
@@ -40,11 +44,95 @@ NANO_BANANA_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{NAN
 MONGO_URI = os.getenv("MONGO_URI", "mongodb://127.0.0.1:27017")
 MONGO_DB_NAME = os.getenv("MONGO_DB", "notebooklm_studio")
 
+db_client = None
+db = None
+
+
+@asynccontextmanager
+async def lifespan(_app):
+    global db_client, db
+    warn_if_open()
+    if not GEMINI_API_KEY:
+        print("WARNING: GEMINI_API_KEY is not set - AI generation will fail until it is configured.")
+    try:
+        db_client = AsyncIOMotorClient(MONGO_URI, serverSelectionTimeoutMS=1000)
+        db = db_client[MONGO_DB_NAME]
+        await db_client.admin.command("ping")  # quick connectivity check
+        print(f"Connected to MongoDB successfully: {MONGO_DB_NAME}")
+    except Exception as e:
+        print(f"WARNING: MongoDB connection failed (falling back to memory/local fallback): {e}")
+        db = None
+    yield
+    if db_client:
+        db_client.close()
+        print("MongoDB connection closed.")
+
+
 app = FastAPI(
     title="NotebookLM MCP Server (Gemini & MongoDB Powered)",
     version="4.0.0",
+    lifespan=lifespan,
     dependencies=[Depends(authenticate)],  # access-key auth + general rate limit on every route
 )
+
+
+class BodySizeLimitMiddleware:
+    """Reject request bodies over MAX_BODY_BYTES, whether or not Content-Length is sent.
+
+    A declared Content-Length is checked up front. Bodies without one (chunked
+    transfer) are buffered up to the limit and then replayed to the app, so a
+    client cannot bypass the limit by omitting the header.
+    """
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
+
+        headers = dict(scope.get("headers") or [])
+        declared = headers.get(b"content-length")
+        if declared is not None:
+            if not declared.isdigit() or int(declared) > MAX_BODY_BYTES:
+                return await self._reject(scope, send)
+            return await self.app(scope, receive, send)
+
+        if scope.get("method") in ("GET", "HEAD", "OPTIONS", "DELETE"):
+            return await self.app(scope, receive, send)
+
+        chunks, size = [], 0
+        while True:
+            message = await receive()
+            if message["type"] == "http.disconnect":
+                return
+            chunk = message.get("body", b"")
+            size += len(chunk)
+            if size > MAX_BODY_BYTES:
+                return await self._reject(scope, send)
+            chunks.append(chunk)
+            if not message.get("more_body"):
+                break
+
+        body, replayed = b"".join(chunks), False
+
+        async def replay():
+            nonlocal replayed
+            if not replayed:
+                replayed = True
+                return {"type": "http.request", "body": body, "more_body": False}
+            return await receive()
+
+        return await self.app(scope, replay, send)
+
+    @staticmethod
+    async def _reject(scope, send):
+        response = JSONResponse({"detail": "Request body too large."}, status_code=413)
+        await response(scope, None, send)
+
+
+# Added before CORS so CORS is the outer layer and 413 responses still carry CORS headers.
+app.add_middleware(BodySizeLimitMiddleware)
 
 # Browsers on other origins (e.g. the Vite dev server) must be listed explicitly.
 # Auth uses a bearer header, not cookies, so credentials are never needed.
@@ -57,36 +145,6 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type"],
 )
 
-
-@app.middleware("http")
-async def limit_body_size(request: Request, call_next):
-    declared = request.headers.get("content-length")
-    if declared and declared.isdigit() and int(declared) > MAX_BODY_BYTES:
-        return JSONResponse({"detail": "Request body too large."}, status_code=413)
-    return await call_next(request)
-
-db_client = None
-db = None
-
-@app.on_event("startup")
-async def startup_db_client():
-    global db_client, db
-    warn_if_open()
-    try:
-        db_client = AsyncIOMotorClient(MONGO_URI, serverSelectionTimeoutMS=1000)
-        db = db_client[MONGO_DB_NAME]
-        # Quick ping to verify connectivity
-        await db_client.admin.command('ping')
-        print(f"Connected to MongoDB successfully: {MONGO_DB_NAME}")
-    except Exception as e:
-        print(f"WARNING: MongoDB connection failed (falling back to memory/local fallback): {e}")
-        db = None
-
-@app.on_event("shutdown")
-async def shutdown_db_client():
-    if db_client:
-        db_client.close()
-        print("MongoDB connection closed.")
 
 
 # ── MongoDB Schemas ───────────────────────────────────────────
@@ -145,17 +203,16 @@ VIDEO_RENDER_JOBS = {}
 HYPERFRAMES_JOBS = {}
 
 
-def _synthesize_video_audio(turns: List[dict]) -> dict:
-    """Create one WAV track with the same host voices used by the video recorder.
+# ── Narration (text-to-speech) ───────────────────────────────────────────────
+# Backends, in order of preference when TTS_BACKEND is not set:
+#   sapi   - Windows SAPI voices via PowerShell (Windows only)
+#   gemini - Gemini TTS API (any OS; needs GEMINI_API_KEY)
+#   espeak - espeak-ng / espeak command line (any OS; offline, robotic voice)
 
-    Browser SpeechSynthesis is audible but does not expose its output as a
-    MediaStream. Windows SAPI gives the recorder a real PCM audio track without
-    requiring screen/tab sharing or a microphone.
-    """
-    if not turns:
-        raise ValueError("At least one dialogue turn is required")
+GEMINI_TTS_MODEL = os.getenv("GEMINI_TTS_MODEL", "gemini-2.5-flash-preview-tts")
+GEMINI_TTS_VOICES = (os.getenv("GEMINI_TTS_VOICE_A", "Puck"), os.getenv("GEMINI_TTS_VOICE_B", "Kore"))
 
-    powershell = """
+SAPI_SCRIPT = """
 param([string]$TextBase64, [string]$VoiceName, [string]$OutputPath)
 Add-Type -AssemblyName System.Speech
 $text = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($TextBase64))
@@ -169,37 +226,140 @@ $synth.SetOutputToNull()
 $synth.Dispose()
 """
 
+
+class TTSUnavailable(RuntimeError):
+    pass
+
+
+def _espeak_cmd() -> Optional[str]:
+    return shutil.which("espeak-ng") or shutil.which("espeak")
+
+
+def _tts_backend() -> Optional[str]:
+    forced = os.getenv("TTS_BACKEND", "").strip().lower()
+    if forced:
+        return forced
+    if os.name == "nt":
+        return "sapi"
+    if GEMINI_API_KEY:
+        return "gemini"
+    if _espeak_cmd():
+        return "espeak"
+    return None
+
+
+def _is_host_a(speaker) -> bool:
+    s = str(speaker or "").lower()
+    return "host a" in s or "alex" in s
+
+
+def _tts_sapi(text: str, host_a: bool, out_path: str, temp_dir: str) -> None:
+    script_path = os.path.join(temp_dir, "synthesize_turn.ps1")
+    if not os.path.exists(script_path):
+        with open(script_path, "w", encoding="utf-8") as f:
+            f.write(SAPI_SCRIPT)
+    voice = "Microsoft David Desktop" if host_a else "Microsoft Zira Desktop"
+    text_b64 = base64.b64encode(text.encode("utf-8")).decode("ascii")
+    try:
+        result = subprocess.run(
+            ["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", script_path,
+             "-TextBase64", text_b64, "-VoiceName", voice, "-OutputPath", out_path],
+            capture_output=True, text=True, timeout=90, check=False,
+        )
+    except FileNotFoundError:
+        raise TTSUnavailable("TTS_BACKEND=sapi needs Windows PowerShell.")
+    if result.returncode != 0 or not os.path.exists(out_path):
+        raise RuntimeError((result.stderr or result.stdout or "Windows speech synthesis failed").strip())
+
+
+def _tts_gemini(text: str, host_a: bool, out_path: str, temp_dir: str) -> None:
+    require_gemini_key()
+    payload = json.dumps({
+        "contents": [{"parts": [{"text": text}]}],
+        "generationConfig": {
+            "responseModalities": ["AUDIO"],
+            "speechConfig": {"voiceConfig": {"prebuiltVoiceConfig": {"voiceName": GEMINI_TTS_VOICES[0 if host_a else 1]}}},
+        },
+    }).encode()
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_TTS_MODEL}:generateContent"
+    last_err = None
+    for attempt in range(3):
+        try:
+            req = urllib.request.Request(url, data=payload, method="POST",
+                                         headers={"Content-Type": "application/json", "x-goog-api-key": GEMINI_API_KEY})
+            data = json.loads(urllib.request.urlopen(req, timeout=90).read().decode())
+            part = data["candidates"][0]["content"]["parts"][0]["inlineData"]
+            pcm = base64.b64decode(part["data"])
+            rate = int((re.search(r"rate=(\d+)", part.get("mimeType", "")) or [None, 24000])[1])
+            with wave.open(out_path, "wb") as w:  # Gemini returns raw 16-bit mono PCM
+                w.setnchannels(1)
+                w.setsampwidth(2)
+                w.setframerate(rate)
+                w.writeframes(pcm)
+            return
+        except urllib.error.HTTPError as e:
+            last_err = e
+            if e.code in (429, 500, 503):
+                time.sleep(1 + attempt)
+                continue
+            break
+        except Exception as e:
+            last_err = e
+            break
+    raise RuntimeError(f"Gemini TTS failed: {last_err}")
+
+
+def _tts_espeak(text: str, host_a: bool, out_path: str, temp_dir: str) -> None:
+    cmd = _espeak_cmd()
+    if not cmd:
+        raise TTSUnavailable("TTS_BACKEND=espeak needs espeak-ng (e.g. apt install espeak-ng).")
+    text_path = out_path + ".txt"
+    with open(text_path, "w", encoding="utf-8") as f:
+        f.write(text)
+    voice = "en-us+m3" if host_a else "en-us+f3"
+    result = subprocess.run([cmd, "-v", voice, "-s", "165", "-f", text_path, "-w", out_path],
+                            capture_output=True, text=True, timeout=90, check=False)
+    if result.returncode != 0 or not os.path.exists(out_path):
+        raise RuntimeError((result.stderr or "espeak failed").strip())
+
+
+TTS_BACKENDS = {"sapi": _tts_sapi, "gemini": _tts_gemini, "espeak": _tts_espeak}
+
+
+def _synthesize_video_audio(turns: List[dict]) -> dict:
+    """Render every dialogue turn to speech and join them into one WAV track.
+
+    Browser SpeechSynthesis is audible but does not expose its output as a
+    MediaStream, so the video recorder needs real PCM audio from the server.
+    """
+    if not turns:
+        raise ValueError("At least one dialogue turn is required")
+    backend = _tts_backend()
+    if backend is None:
+        raise TTSUnavailable("No speech engine is available on the server. Set GEMINI_API_KEY (Gemini TTS), "
+                             "install espeak-ng, or run the server on Windows.")
+    synth = TTS_BACKENDS.get(backend)
+    if synth is None:
+        raise TTSUnavailable(f"Unknown TTS_BACKEND '{backend}'. Use one of: {', '.join(TTS_BACKENDS)}.")
+
+    items = [(i, str(t.get("text", "")).strip(), _is_host_a(t.get("speaker"))) for i, t in enumerate(turns)]
+    items = [it for it in items if it[1]]
+    if not items:
+        raise ValueError("Dialogue turns contain no text")
+
     temp_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".tmp_tts")
     os.makedirs(temp_root, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="notebooklm_tts_", dir=temp_root, ignore_cleanup_errors=True) as temp_dir:
-        script_path = os.path.join(temp_dir, "synthesize_turn.ps1")
-        with open(script_path, "w", encoding="utf-8") as script_file:
-            script_file.write(powershell)
+        def render(item):
+            index, text, host_a = item
+            path = os.path.join(temp_dir, f"turn_{index}.wav")
+            synth(text, host_a, path, temp_dir)
+            return path
 
-        chunk_paths = []
-        for index, turn in enumerate(turns):
-            text = str(turn.get("text", "")).strip()
-            if not text:
-                continue
-            is_host_a = "host a" in str(turn.get("speaker", "")).lower() or "alex" in str(turn.get("speaker", "")).lower()
-            voice_name = "Microsoft David Desktop" if is_host_a else "Microsoft Zira Desktop"
-            chunk_path = os.path.join(temp_dir, f"turn_{index}.wav")
-            text_b64 = base64.b64encode(text.encode("utf-8")).decode("ascii")
-            result = subprocess.run(
-                ["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", script_path,
-                 "-TextBase64", text_b64, "-VoiceName", voice_name, "-OutputPath", chunk_path],
-                capture_output=True,
-                text=True,
-                timeout=90,
-                check=False,
-            )
-            if result.returncode != 0 or not os.path.exists(chunk_path):
-                detail = (result.stderr or result.stdout or "Windows speech synthesis failed").strip()
-                raise RuntimeError(detail)
-            chunk_paths.append(chunk_path)
-
-        if not chunk_paths:
-            raise ValueError("Dialogue turns contain no text")
+        # Network backends benefit from parallel requests; local engines are fast enough serially.
+        workers = 4 if backend == "gemini" else 1
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            chunk_paths = list(pool.map(render, items))
 
         combined = bytearray()
         durations = []
@@ -210,6 +370,8 @@ $synth.Dispose()
                 params = source.getparams()
                 if first_params is None:
                     first_params = params
+                elif (params.nchannels, params.sampwidth, params.framerate) != (first_params.nchannels, first_params.sampwidth, first_params.framerate):
+                    raise RuntimeError("Speech chunks have mismatched audio formats")
                 frames = source.readframes(source.getnframes())
                 duration = source.getnframes() / source.getframerate()
                 combined.extend(frames)
@@ -224,24 +386,76 @@ $synth.Dispose()
             target.setnchannels(first_params.nchannels)
             target.setsampwidth(first_params.sampwidth)
             target.setframerate(first_params.framerate)
-            target.setcomptype(first_params.comptype, first_params.compname)
             target.writeframes(bytes(combined))
 
         return {
             "audioBase64": base64.b64encode(output.getvalue()).decode("ascii"),
             "durations": durations,
+            "engine": backend,
         }
 
 
 @app.post("/api/tts", dependencies=[Depends(limit("tts"))])
 async def synthesize_tts(request: TTSRequest):
     try:
-        return _synthesize_video_audio(request.turns)
-    except FileNotFoundError:
-        raise HTTPException(status_code=503, detail="Windows PowerShell is required for video narration")
+        # Speech synthesis blocks for seconds per turn; keep the event loop free.
+        return await asyncio.to_thread(_synthesize_video_audio, request.turns)
+    except (TTSUnavailable, GeminiNotConfigured) as exc:
+        raise HTTPException(status_code=503, detail=f"Video narration is unavailable: {exc}")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
         print(f"[TTS Error] {exc}")
         raise HTTPException(status_code=500, detail=f"Video narration failed: {exc}")
+
+
+PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
+RENDER_DIR = os.path.join(PROJECT_ROOT, "renders")
+RENDER_RETENTION_HOURS = float(os.getenv("RENDER_RETENTION_HOURS", "24"))
+
+
+def _render_log(job_id: str):
+    os.makedirs(RENDER_DIR, exist_ok=True)
+    return open(os.path.join(RENDER_DIR, f"{job_id}.log"), "w", encoding="utf-8", errors="replace")
+
+
+def _log_tail(job: dict, lines: int = 15) -> str:
+    """Last lines of a failed render's log, for the error message."""
+    path = job.get("log")
+    if not path or not os.path.exists(path):
+        return ""
+    with open(path, encoding="utf-8", errors="replace") as f:
+        tail = [l.rstrip() for l in f.readlines()[-lines:] if l.strip()]
+    return "\n".join(tail)[-2000:]
+
+
+def _cleanup_old_renders() -> None:
+    """Delete finished render outputs, logs and temp inputs older than the retention window."""
+    cutoff = time.time() - RENDER_RETENTION_HOURS * 3600
+    for jobs in (VIDEO_RENDER_JOBS, HYPERFRAMES_JOBS):
+        for job_id, job in list(jobs.items()):
+            if job["process"].poll() is not None and job.get("started", time.time()) < cutoff:
+                jobs.pop(job_id, None)
+    for folder in (RENDER_DIR, os.path.join(PROJECT_ROOT, ".tmp_tts"), os.path.join(PROJECT_ROOT, ".tmp_hyperframes")):
+        if not os.path.isdir(folder):
+            continue
+        for name in os.listdir(folder):
+            path = os.path.join(folder, name)
+            try:
+                if os.path.getmtime(path) >= cutoff:
+                    continue
+                shutil.rmtree(path, ignore_errors=True) if os.path.isdir(path) else os.remove(path)
+            except OSError:
+                pass
+
+
+def _ffmpeg_path_dirs() -> list:
+    """Directories holding the ffmpeg/ffprobe binaries bundled via npm, for this OS/CPU."""
+    plat = {"win32": "win32", "darwin": "darwin"}.get(sys.platform, "linux")
+    arch = {"x86_64": "x64", "amd64": "x64", "arm64": "arm64", "aarch64": "arm64", "i386": "ia32", "i686": "ia32"}.get(platform.machine().lower(), "x64")
+    dirs = [os.path.join(PROJECT_ROOT, "node_modules", "ffmpeg-static"),
+            os.path.join(PROJECT_ROOT, "node_modules", "ffprobe-static", "bin", plat, arch)]
+    return [d for d in dirs if os.path.isdir(d)]
 
 
 def _active_renders() -> int:
@@ -272,13 +486,16 @@ def _start_video_render(composition_id: str, props: dict, job_id: str, output_pa
         "npx", "remotion", "render", "remotion/index.jsx", composition_id,
         output_path, f"--props={props_path}", "--log=progress",
     ]
-    process = subprocess.Popen(command, cwd=project_root, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    VIDEO_RENDER_JOBS[job_id] = {"process": process, "output": output_path, "props": props_path, "status": "rendering", "logs": [], "owner": owner}
+    with _render_log(job_id) as log:
+        process = subprocess.Popen(command, cwd=project_root, stdout=log, stderr=subprocess.STDOUT)
+    VIDEO_RENDER_JOBS[job_id] = {"process": process, "output": output_path, "props": props_path, "status": "rendering",
+                                 "log": log.name, "owner": owner, "started": time.time()}
 
 
 @app.post("/api/videos/render", dependencies=[Depends(limit("render"))])
 async def render_video(request: VideoRenderRequest, owner=Depends(current_owner)):
     _require_render_capacity()
+    _cleanup_old_renders()
     composition_map = {
         "podcast": "PodcastStudioComposition",
         "summary": "DocumentSummaryComposition",
@@ -309,7 +526,7 @@ async def get_video_render_status(job_id: str, owner=Depends(current_owner)):
     job["status"] = "complete" if process.returncode == 0 and os.path.exists(job["output"]) else "error"
     if job["status"] == "complete":
         return {"jobId": job_id, "status": "complete", "downloadUrl": f"/api/videos/{job_id}/download"}
-    return {"jobId": job_id, "status": "error", "message": "Remotion failed to render the composition"}
+    return {"jobId": job_id, "status": "error", "message": "Remotion failed to render the composition", "log": _log_tail(job)}
 
 
 @app.get("/api/videos/{video_id}/download")
@@ -328,6 +545,7 @@ async def render_hyperframes(request: HyperFramesRenderRequest, owner=Depends(cu
         raise HTTPException(status_code=503, detail="HyperFrames CLI is not installed. Run: npm install -g hyperframes")
 
     _require_render_capacity()
+    _cleanup_old_renders()
     timeline = request.timeline or {}
     width = int(timeline.get("width", 1920))
     height = int(timeline.get("height", 1080))
@@ -367,16 +585,16 @@ async def render_hyperframes(request: HyperFramesRenderRequest, owner=Depends(cu
     with open(os.path.join(project_dir, "hyperframes.json"), "w", encoding="utf-8") as file:
         json.dump(hyperframes_json, file)
 
-    ffmpeg_dir = os.path.join(project_root, "node_modules", "ffmpeg-static")
-    ffprobe_dir = os.path.join(project_root, "node_modules", "ffprobe-static", "bin", "win32", "x64")
     env = os.environ.copy()
-    env["PATH"] = os.pathsep.join([ffmpeg_dir, ffprobe_dir, env.get("PATH", "")])
+    env["PATH"] = os.pathsep.join([*_ffmpeg_path_dirs(), env.get("PATH", "")])
     command = [hyperframes_cmd, "render", project_dir, "--output", output_path, "--format", "mp4", "--fps", str(fps), "--resolution", resolution, "--low-memory-mode"]
     try:
-        process = subprocess.Popen(command, cwd=project_root, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        with _render_log(job_id) as log:
+            process = subprocess.Popen(command, cwd=project_root, env=env, stdout=log, stderr=subprocess.STDOUT)
     except OSError as exc:
         raise HTTPException(status_code=503, detail=f"Unable to start HyperFrames renderer: {exc}")
-    HYPERFRAMES_JOBS[job_id] = {"process": process, "output": output_path, "project": project_dir, "status": "rendering", "owner": owner}
+    HYPERFRAMES_JOBS[job_id] = {"process": process, "output": output_path, "project": project_dir, "status": "rendering",
+                                "log": log.name, "owner": owner, "started": time.time()}
     return {"jobId": job_id, "status": "rendering", "message": "HyperFrames render started"}
 
 
@@ -390,7 +608,7 @@ async def get_hyperframes_render_status(job_id: str, owner=Depends(current_owner
         return {"jobId": job_id, "status": "rendering"}
     if process.returncode == 0 and os.path.exists(job["output"]):
         return {"jobId": job_id, "status": "complete", "downloadUrl": f"/api/hyperframes/{job_id}/download"}
-    return {"jobId": job_id, "status": "error", "message": "HyperFrames failed to render the composition. Run hyperframes doctor for diagnostics."}
+    return {"jobId": job_id, "status": "error", "message": "HyperFrames failed to render the composition. Run hyperframes doctor for diagnostics.", "log": _log_tail(job)}
 
 
 @app.get("/api/hyperframes/{job_id}/download")
@@ -510,7 +728,17 @@ async def delete_note(note_id: str, owner=Depends(current_owner)):
 
 GEMINI_MODELS = ["gemini-3.5-flash", "gemini-flash-latest", "gemini-3-flash-preview"]
 
+class GeminiNotConfigured(RuntimeError):
+    pass
+
+
+def require_gemini_key() -> None:
+    if not GEMINI_API_KEY:
+        raise GeminiNotConfigured("GEMINI_API_KEY is not set on the server. Add it to .env (or the host's environment) and restart.")
+
+
 def call_gemini(prompt: str) -> str:
+    require_gemini_key()
     payload = json.dumps({
         "contents": [{"parts": [{"text": prompt}]}],
         "generationConfig": {"temperature": 0.7, "maxOutputTokens": 8192}
@@ -733,7 +961,9 @@ def parse_json(text: str):
 
 @app.get("/")
 def root():
-    return {"status": "online", "service": "NotebookLM MCP Server", "model": GEMINI_MODEL, "endpoint": "/mcp", "mongodb": "enabled" if db is not None else "disabled", "auth": auth_mode()}
+    return {"status": "online", "service": "NotebookLM MCP Server", "model": GEMINI_MODEL, "endpoint": "/mcp",
+            "mongodb": "enabled" if db is not None else "disabled", "auth": auth_mode(),
+            "gemini": "configured" if GEMINI_API_KEY else "missing", "tts": _tts_backend() or "unavailable"}
 
 
 @app.post("/mcp")
@@ -802,6 +1032,7 @@ TOOL_NAMES = {
 
 def run_tool(tool: str, args: dict, title: str, clean_title: str, raw_text: str):
     """Synchronous tool dispatch (blocking Gemini calls). Called via asyncio.to_thread."""
+    require_gemini_key()  # fail fast instead of N failed condense calls
     slide_count = int(args.get("slideCount") or args.get("slide_count") or 7)
     theme = str(args.get("theme") or "light_slate")
     audio_length = str(args.get("audioLength") or args.get("lengthMode") or "standard")

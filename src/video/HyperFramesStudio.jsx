@@ -40,7 +40,7 @@ export default function HyperFramesStudio({ slides, script }) {
         } else if (renderStatus.status === 'complete') {
           setStatus(downloadLink(renderStatus.downloadUrl));
         } else {
-          setStatus(renderStatus.detail || renderStatus.message || 'HyperFrames render failed.');
+          setStatus([renderStatus.detail || renderStatus.message || 'HyperFrames render failed.', renderStatus.log?.split('\n').pop()].filter(Boolean).join(' — '));
         }
       };
       window.setTimeout(poll, 1500);
