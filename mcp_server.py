@@ -587,6 +587,88 @@ def retrieve_context(question: str, text: str, budget: int = CHAT_CONTEXT_CHARS)
     return "\n\n[...]\n\n".join(chunks[i] for i in sorted(picked))
 
 
+
+# ── PAGE-AWARE RETRIEVAL & CITATIONS ─────────────────────────────────────────
+PAGE_RE = re.compile(r"\n?--- Page (\d+) ---\n")
+_STOP = {"the", "and", "what", "which", "that", "this", "with", "from", "for", "are", "was", "how", "why", "does", "about", "who", "when", "where", "you", "can", "tell", "explain", "more"}
+
+
+def parse_pages(text: str) -> list:
+    """Split extracted text on its '--- Page N ---' markers -> [(page_number, body)]."""
+    parts = PAGE_RE.split(text)
+    return [(int(parts[i]), parts[i + 1].strip()) for i in range(1, len(parts) - 1, 2)]
+
+
+def _terms(s: str) -> set:
+    return set(re.findall(r"[a-z0-9]{3,}", s.lower())) - _STOP
+
+
+def retrieve_pages(query: str, text: str, budget: int = CHAT_CONTEXT_CHARS):
+    """Return (context, {page: full page text}) with excerpts labelled [Page N].
+    Returns (None, {}) when the text has no page markers."""
+    pages = parse_pages(text)
+    if not pages:
+        return None, {}
+    page_text = {n: body for n, body in pages}
+    terms = _terms(query)
+
+    units = []  # (page, order, chunk)
+    for n, body in pages:
+        for j, chunk in enumerate(split_chunks(body, 3000) or [""]):
+            units.append((n, j, chunk))
+
+    def score(chunk):
+        words = re.findall(r"[a-z0-9]{3,}", chunk.lower())
+        if not words or not terms:
+            return 0
+        return sum(words.count(t) for t in terms) / (len(words) ** 0.5)
+
+    total = sum(len(u[2]) for u in units)
+    if total <= budget:
+        picked = set(range(len(units)))
+    else:
+        ranked = sorted(range(len(units)), key=lambda i: score(units[i][2]), reverse=True)
+        picked, used = {0}, len(units[0][2])
+        for i in ranked:
+            if i in picked or used + len(units[i][2]) > budget:
+                continue
+            picked.add(i)
+            used += len(units[i][2])
+
+    out, last_page = [], None
+    for i in sorted(picked):
+        n, _, chunk = units[i]
+        out.append(f"[Page {n}]\n{chunk}" if n != last_page else chunk)
+        last_page = n
+    included = {units[i][0] for i in picked}
+    return "\n\n".join(out), {n: t for n, t in page_text.items() if n in included}
+
+
+def extract_citations(answer: str, question: str, available: dict, limit: int = 6) -> list:
+    """Collect [Page N] references from the answer, keep only pages that were
+    actually in the context, and attach the best-matching sentence as evidence."""
+    seen, pages = set(), []
+    for m in re.finditer(r"\[Pages?\s*([\d,\s\-–and]+)\]", answer, flags=re.IGNORECASE):
+        body = m.group(1)
+        nums = []
+        for rng in re.finditer(r"(\d+)\s*[-–]\s*(\d+)", body):
+            a, b = int(rng.group(1)), int(rng.group(2))
+            if 0 <= b - a <= 10:
+                nums.extend(range(a, b + 1))
+        nums.extend(int(x) for x in re.findall(r"\d+", re.sub(r"\d+\s*[-–]\s*\d+", "", body)))
+        for n in nums:
+            if n in available and n not in seen:
+                seen.add(n)
+                pages.append(n)
+    terms = _terms(question) | _terms(answer)
+    citations = []
+    for n in pages[:limit]:
+        sentences = [x.strip() for x in re.split(r"(?<=[.!?])\s+|\n+", available[n]) if len(x.strip()) > 20]
+        best = max(sentences, key=lambda x: len(_terms(x) & terms), default=available[n][:200])
+        citations.append({"page": n, "snippet": best[:240]})
+    return citations
+
+
 def parse_json(text: str):
     cleaned = re.sub(r"```(?:json)?\s*", "", text).replace("```", "").strip()
     # Find first [ or { and last ] or }
@@ -646,7 +728,7 @@ async def handle_mcp(request: Request):
             audio_tone = str(args.get("audioTone") or args.get("tone") or "casual")
 
             if tool == "answer_question":
-                text = retrieve_context(args.get("question", ""), raw_text)
+                text = raw_text
             elif tool == "generate_project_synthesis":
                 text = raw_text
             else:
@@ -918,26 +1000,39 @@ All questions and answers must be grounded in the actual document content."""
 
 
 def answer_question(question: str, title: str, text: str, history: list = None) -> dict:
+    history = history or []
     convo = ""
-    for m in (history or [])[-8:]:
+    for m in history[-8:]:
         who = "User" if m.get("sender") == "user" else "Assistant"
         convo += f"{who}: {str(m.get('text', ''))[:1500]}\n"
     if convo:
         convo = f"\nConversation so far (for resolving follow-up references):\n{convo}\n"
-    prompt = f"""You are a document assistant. Answer this question strictly based on the document provided. Cite specific sections when possible.
+
+    # Follow-ups like "explain that more" retrieve poorly, so include the last user turn.
+    last_user = next((m.get("text", "") for m in reversed(history) if m.get("sender") == "user"), "")
+    query = f"{question} {last_user}"
+
+    context, available = retrieve_pages(query, text)
+    paged = context is not None
+    if not paged:
+        context = retrieve_context(query, text)
+
+    cite_rule = (
+        "The document is given as excerpts labelled [Page N]. After each claim, cite the page it came from "
+        "in the form [Page N] (e.g. [Page 3] or [Page 3, 5]). Only cite pages that appear below; never invent a page."
+        if paged else "Cite specific sections when possible."
+    )
+    prompt = f"""You are a document assistant. Answer this question strictly based on the document provided. {cite_rule}
 
 Document: {title}
-Text: {text}
+Text: {context}
 {convo}
 Question: {question}
 
 Give a clear, accurate, detailed answer. If not in the document, say so honestly."""
     answer = call_gemini(prompt).strip()
-    return {
-        "sender": "assistant",
-        "text": answer,
-        "citations": [title, "Gemini Analysis"]
-    }
+    citations = extract_citations(answer, query, available) if paged else []
+    return {"sender": "assistant", "text": answer, "citations": citations}
 
 
 def gen_report(title: str, text: str) -> dict:
