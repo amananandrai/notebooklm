@@ -114,19 +114,13 @@ export async function parsePDFFile(file, onProgress = () => {}) {
     };
   } catch (error) {
     console.error('PDF extraction error:', error);
-    
-    // Clean fallback if PDF structure is corrupted
-    return {
-      id: `pdf_${Date.now()}`,
-      title: file.name,
-      sizeBytes: file.size || 1024,
-      pages: 1,
-      words: 150,
-      uploadedAt: new Date().toLocaleDateString(),
-      rawText: `Document Title: ${file.name}\nUploaded PDF document parsed for NotebookLM MCP processing.`,
-      pagesData: [{ pageNumber: 1, text: `Document content of ${file.name}` }],
-      isScanned: false,
-      summary: `Uploaded file ${file.name} prepared for MCP processing.`
-    };
+    // Surface the failure instead of returning placeholder text: otherwise a
+    // corrupt or non-PDF file becomes a "source" and the AI generates from it.
+    const reason = error?.name === 'PasswordException'
+      ? 'the PDF is password-protected'
+      : error?.name === 'InvalidPDFException' || /invalid pdf|expected either/i.test(error?.message || '')
+        ? 'the file is not a valid PDF or is corrupted'
+        : (error?.message || 'unknown error');
+    throw new Error(`Could not read this PDF (${reason}).`);
   }
 }

@@ -1,4 +1,5 @@
 import uvicorn
+import asyncio
 import base64
 import html
 import io
@@ -776,53 +777,60 @@ async def handle_mcp(request: Request):
             return {"jsonrpc": "2.0", "id": rpc_id, "error": {"code": -32602, "message": f"Document text exceeds the {MAX_DOC_CHARS:,} character limit."}}
         clean_title = re.sub(r"\.pdf$", "", title, flags=re.IGNORECASE)
 
+        if tool not in TOOL_NAMES:
+            return {"jsonrpc": "2.0", "id": rpc_id, "error": {"code": -32601, "message": f"Unknown tool: {tool}"}}
+
         try:
-            slide_count = int(args.get("slideCount") or args.get("slide_count") or 7)
-            theme = str(args.get("theme") or "light_slate")
-            audio_length = str(args.get("audioLength") or args.get("lengthMode") or "standard")
-            audio_tone = str(args.get("audioTone") or args.get("tone") or "casual")
-
-            if tool == "answer_question":
-                text = raw_text
-            elif tool == "generate_project_synthesis":
-                text = raw_text
-            else:
-                text = condense_text(raw_text)
-
-            if tool == "generate_mindmap":
-                result = gen_mindmap(clean_title, text)
-            elif tool == "generate_audio_overview":
-                result = gen_audio(clean_title, text, length_mode=audio_length, tone=audio_tone)
-            elif tool == "generate_slide_deck":
-                result = gen_slides(clean_title, text, slide_count=slide_count, theme=theme)
-            elif tool == "generate_slides_with_images":
-                result = gen_slides_with_images(clean_title, text, slide_count=slide_count, theme=theme)
-            elif tool == "generate_infographic":
-                result = gen_infographic(clean_title, text)
-            elif tool == "generate_study_guide":
-                result = gen_study_guide(clean_title, text)
-            elif tool == "answer_question":
-                result = answer_question(args.get("question", ""), title, text, args.get("history"))
-            elif tool == "generate_report":
-                result = gen_report(clean_title, text)
-            elif tool == "generate_data_table":
-                result = gen_data_table(clean_title, text)
-            elif tool == "generate_project_synthesis":
-                texts = args.get("documents", [])
-                if not texts:
-                    texts = [{"title": title, "text": raw_text}]
-                result = gen_project_synthesis(texts)
-            else:
-                return {"jsonrpc": "2.0", "id": rpc_id, "error": {"code": -32601, "message": f"Unknown tool: {tool}"}}
-
+            # Gemini calls block for seconds (minutes when condensing long documents);
+            # run them in a worker thread so the event loop keeps serving other requests.
+            result = await asyncio.to_thread(run_tool, tool, args, title, clean_title, raw_text)
             return {"jsonrpc": "2.0", "id": rpc_id,
                     "result": {"content": [{"type": "text", "text": json.dumps(result)}]}}
-
         except Exception as e:
             print(f"[MCP Error] tool={tool} error={e}")
             return {"jsonrpc": "2.0", "id": rpc_id, "error": {"code": -32000, "message": str(e)}}
 
     return {"jsonrpc": "2.0", "id": rpc_id, "error": {"code": -32601, "message": "Method not found"}}
+
+
+TOOL_NAMES = {
+    "generate_mindmap", "generate_audio_overview", "generate_slide_deck", "generate_slides_with_images",
+    "generate_infographic", "generate_study_guide", "answer_question", "generate_report",
+    "generate_data_table", "generate_project_synthesis",
+}
+
+
+def run_tool(tool: str, args: dict, title: str, clean_title: str, raw_text: str):
+    """Synchronous tool dispatch (blocking Gemini calls). Called via asyncio.to_thread."""
+    slide_count = int(args.get("slideCount") or args.get("slide_count") or 7)
+    theme = str(args.get("theme") or "light_slate")
+    audio_length = str(args.get("audioLength") or args.get("lengthMode") or "standard")
+    audio_tone = str(args.get("audioTone") or args.get("tone") or "casual")
+
+    if tool == "answer_question":
+        return answer_question(args.get("question", ""), title, raw_text, args.get("history"))
+    if tool == "generate_project_synthesis":
+        texts = args.get("documents") or [{"title": title, "text": raw_text}]
+        return gen_project_synthesis(texts)
+
+    text = condense_text(raw_text)
+    if tool == "generate_mindmap":
+        return gen_mindmap(clean_title, text)
+    if tool == "generate_audio_overview":
+        return gen_audio(clean_title, text, length_mode=audio_length, tone=audio_tone)
+    if tool == "generate_slide_deck":
+        return gen_slides(clean_title, text, slide_count=slide_count, theme=theme)
+    if tool == "generate_slides_with_images":
+        return gen_slides_with_images(clean_title, text, slide_count=slide_count, theme=theme)
+    if tool == "generate_infographic":
+        return gen_infographic(clean_title, text)
+    if tool == "generate_study_guide":
+        return gen_study_guide(clean_title, text)
+    if tool == "generate_report":
+        return gen_report(clean_title, text)
+    if tool == "generate_data_table":
+        return gen_data_table(clean_title, text)
+    raise ValueError(f"Unknown tool: {tool}")
 
 
 # ── INDIVIDUAL GENERATORS ────────────────────────────────────────────────────
