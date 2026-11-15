@@ -9,6 +9,26 @@ const memStore = {
   artifacts: {}
 };
 
+// Tracks when the backend is unreachable so the UI can warn that data is only
+// held in memory and will be lost on refresh.
+let usingFallback = false;
+const fallbackListeners = new Set();
+
+function markFallback(op, err) {
+  console.warn(`Backend ${op} failed, using in-memory fallback:`, err);
+  if (!usingFallback) {
+    usingFallback = true;
+    fallbackListeners.forEach(fn => fn(true));
+  }
+}
+
+export function isUsingFallback() { return usingFallback; }
+
+export function onFallbackChange(fn) {
+  fallbackListeners.add(fn);
+  return () => fallbackListeners.delete(fn);
+}
+
 // ── Projects ──
 export async function loadProjects() {
   try {
@@ -44,7 +64,7 @@ export async function createProject({ name, description, color, color2, icon }) 
     });
     if (!res.ok) throw new Error('API error');
   } catch (err) {
-    console.warn('MongoDB createProject failed, using fallback:', err);
+    markFallback('createProject', err);
     memStore.projects.unshift(project);
   }
   return project;
@@ -55,7 +75,7 @@ export async function deleteProject(projectId) {
     const res = await fetch(`${API_BASE}/projects/${projectId}`, { method: 'DELETE' });
     if (!res.ok) throw new Error('API error');
   } catch (err) {
-    console.warn('MongoDB deleteProject failed, using fallback:', err);
+    markFallback('deleteProject', err);
     memStore.projects = memStore.projects.filter(p => p.id !== projectId);
   }
 }
@@ -71,7 +91,7 @@ export async function saveDocument(projectId, doc) {
     });
     if (!res.ok) throw new Error('API error');
   } catch (err) {
-    console.warn('MongoDB saveDocument failed, using fallback:', err);
+    markFallback('saveDocument', err);
     memStore.documents[doc.id] = payload;
     const proj = memStore.projects.find(p => p.id === projectId);
     if (proj && !proj.sourceIds.includes(doc.id)) {
@@ -88,7 +108,7 @@ export async function getDocument(docId) {
     if (!res.ok) throw new Error('API error');
     return res.json();
   } catch (err) {
-    console.warn('MongoDB getDocument failed, using fallback:', err);
+    markFallback('getDocument', err);
     return memStore.documents[docId] || null;
   }
 }
@@ -100,7 +120,7 @@ export async function loadDocumentsForProject(projectId, sourceIds = []) {
     const docs = await res.json();
     if (docs && docs.length > 0) return docs;
   } catch (err) {
-    console.warn('MongoDB loadDocumentsForProject failed, trying individual fetch:', err);
+    markFallback('loadDocumentsForProject', err);
   }
 
   // Fallback: fetch individual document objects if sourceIds are available
@@ -118,7 +138,7 @@ export async function deleteDocument(projectId, docId) {
     const res = await fetch(`${API_BASE}/documents/${projectId}/${docId}`, { method: 'DELETE' });
     if (!res.ok) throw new Error('API error');
   } catch (err) {
-    console.warn('MongoDB deleteDocument failed, using fallback:', err);
+    markFallback('deleteDocument', err);
     delete memStore.documents[docId];
     const proj = memStore.projects.find(p => p.id === projectId);
     if (proj) proj.sourceIds = proj.sourceIds.filter(id => id !== docId);
@@ -137,7 +157,7 @@ export async function saveArtifact(projectId, docId, featureType, data) {
     });
     if (!res.ok) throw new Error('API error');
   } catch (err) {
-    console.warn('MongoDB saveArtifact failed, using fallback:', err);
+    markFallback('saveArtifact', err);
     memStore.artifacts[key] = data;
   }
 }
@@ -149,7 +169,7 @@ export async function getArtifact(projectId, docId, featureType) {
     if (!res.ok) throw new Error('API error');
     return res.json();
   } catch (err) {
-    console.warn('MongoDB getArtifact failed, using fallback:', err);
+    markFallback('getArtifact', err);
     return memStore.artifacts[key] || null;
   }
 }
@@ -174,7 +194,7 @@ export async function createNote(projectId, note) {
     });
     if (!res.ok) throw new Error('API error');
   } catch (err) {
-    console.warn('MongoDB createNote failed, using fallback:', err);
+    markFallback('createNote', err);
     if (!memStore.notes) memStore.notes = [];
     memStore.notes.unshift(payload);
   }
@@ -186,7 +206,7 @@ export async function loadNotes(projectId) {
     if (!res.ok) throw new Error('API error');
     return res.json();
   } catch (err) {
-    console.warn('MongoDB loadNotes failed, using fallback:', err);
+    markFallback('loadNotes', err);
     return (memStore.notes || []).filter(n => n.projectId === projectId);
   }
 }
@@ -196,7 +216,7 @@ export async function deleteNote(noteId) {
     const res = await fetch(`${API_BASE}/notes/${noteId}`, { method: 'DELETE' });
     if (!res.ok) throw new Error('API error');
   } catch (err) {
-    console.warn('MongoDB deleteNote failed, using fallback:', err);
+    markFallback('deleteNote', err);
     if (memStore.notes) {
       memStore.notes = memStore.notes.filter(n => n.id !== noteId);
     }

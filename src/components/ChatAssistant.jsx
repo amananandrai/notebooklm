@@ -29,7 +29,7 @@ export default function ChatAssistant({ docTitle, onAskQuestion, initialMessages
     setLoading(true);
 
     try {
-      const resp = await onAskQuestion(q);
+      const resp = await onAskQuestion(q, messages.filter(m => m.id !== 'init').map(m => ({ sender: m.sender, text: m.text })));
       const aiMsg = {
         id: Date.now() + 1,
         sender: 'assistant',
@@ -43,7 +43,7 @@ export default function ChatAssistant({ docTitle, onAskQuestion, initialMessages
       const errMsg = {
         id: Date.now() + 1,
         sender: 'assistant',
-        text: `⚠️ Error: ${err.message}. Please ensure the MCP server is running at http://127.0.0.1:8080`,
+        text: `⚠️ Error: ${err.message}. Please check that the MCP server is reachable (MCP settings).`,
         citations: [],
       };
       const final = [...updated, errMsg];

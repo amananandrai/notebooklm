@@ -14,42 +14,8 @@ import HyperFramesStudio from '../video/HyperFramesStudio';
 import ReportViewer from './ReportViewer';
 import DataTableViewer from './DataTableViewer';
 import NotesPanel from './NotesPanel';
+import { callMCP } from '../utils/notebookLMEngine';
 import { DECK_THEMES, IMAGE_SLIDE_THEMES, SLIDE_COUNTS, AUDIO_LENGTHS, AUDIO_TONES } from '../utils/themes';
-
-const MCP_ENDPOINT = window.location.origin.includes('5173') || window.location.origin.includes('localhost')
-  ? 'http://127.0.0.1:8080/mcp'
-  : '/mcp';
-
-async function callMCP(toolName, args) {
-  const payload = {
-    jsonrpc: '2.0',
-    id: Date.now(),
-    method: 'tools/call',
-    params: { name: toolName, arguments: args },
-  };
-
-  const res = await fetch(MCP_ENDPOINT, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
-
-  if (!res.ok) {
-    throw new Error(`MCP HTTP error ${res.status}: ${res.statusText}`);
-  }
-
-  const json = await res.json();
-  if (json.error) {
-    throw new Error(json.error.message || 'MCP Error');
-  }
-
-  const textContent = json.result?.content?.[0]?.text;
-  if (!textContent) {
-    throw new Error('Empty response from MCP server');
-  }
-
-  return JSON.parse(textContent);
-}
 
 // ── Tab configuration ──────────────────────────────────────────
 const TABS = [
@@ -419,10 +385,10 @@ export default function ProjectWorkspace({ project, onBack }) {
   }
 
   // Chat sends a question to MCP
-  async function handleChatQuestion(question) {
+  async function handleChatQuestion(question, history = []) {
     const doc = await getDocument(activeDocId);
     if (!doc) throw new Error('Document not found.');
-    return callMCP('answer_question', { documentTitle: doc.title, rawText: doc.rawText, question });
+    return callMCP('answer_question', { documentTitle: doc.title, rawText: doc.rawText, question, history });
   }
 
   // ── Render helpers ─────────────────────────────────────────────

@@ -24,11 +24,11 @@ load_dotenv()
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 GEMINI_MODEL = "gemini-flash-latest"
-GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}"
+GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
 
 # Nano Banana 2 = gemini-3.1-flash-image (confirmed displayName)
 NANO_BANANA_MODEL = "gemini-3.1-flash-image"
-NANO_BANANA_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{NANO_BANANA_MODEL}:generateContent?key={GEMINI_API_KEY}"
+NANO_BANANA_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{NANO_BANANA_MODEL}:generateContent"
 
 # MongoDB Configuration
 MONGO_URI = os.getenv("MONGO_URI", "mongodb://127.0.0.1:27017")
@@ -467,10 +467,10 @@ def call_gemini(prompt: str) -> str:
     
     last_err = None
     for model_name in GEMINI_MODELS:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={GEMINI_API_KEY}"
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent"
         for attempt in range(2):
             try:
-                req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"}, method="POST")
+                req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json", "x-goog-api-key": GEMINI_API_KEY}, method="POST")
                 resp = urllib.request.urlopen(req, timeout=90)
                 data = json.loads(resp.read().decode())
                 return data["candidates"][0]["content"]["parts"][0]["text"]
@@ -665,7 +665,7 @@ async def handle_mcp(request: Request):
             elif tool == "generate_study_guide":
                 result = gen_study_guide(clean_title, text)
             elif tool == "answer_question":
-                result = answer_question(args.get("question", ""), title, text)
+                result = answer_question(args.get("question", ""), title, text, args.get("history"))
             elif tool == "generate_report":
                 result = gen_report(clean_title, text)
             elif tool == "generate_data_table":
@@ -917,19 +917,25 @@ All questions and answers must be grounded in the actual document content."""
     return parse_json(call_gemini(prompt))
 
 
-def answer_question(question: str, title: str, text: str) -> dict:
+def answer_question(question: str, title: str, text: str, history: list = None) -> dict:
+    convo = ""
+    for m in (history or [])[-8:]:
+        who = "User" if m.get("sender") == "user" else "Assistant"
+        convo += f"{who}: {str(m.get('text', ''))[:1500]}\n"
+    if convo:
+        convo = f"\nConversation so far (for resolving follow-up references):\n{convo}\n"
     prompt = f"""You are a document assistant. Answer this question strictly based on the document provided. Cite specific sections when possible.
 
 Document: {title}
 Text: {text}
-
+{convo}
 Question: {question}
 
 Give a clear, accurate, detailed answer. If not in the document, say so honestly."""
     answer = call_gemini(prompt).strip()
     return {
         "sender": "assistant",
-        "text": f"**[Gemini — Document Grounded]**\n\n{answer}",
+        "text": answer,
         "citations": [title, "Gemini Analysis"]
     }
 
