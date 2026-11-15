@@ -29,6 +29,16 @@ def set_db(database) -> None:
 
 async def _connect():
     global _client, _db, _ready, _retry_at
+    if settings.mongo_uri.strip().lower() == "memory":
+        # Local development without MongoDB: an in-memory database (lost on restart).
+        try:
+            import mongomock_motor
+        except ImportError:
+            raise HTTPException(status_code=503, detail="MONGO_URI=memory needs: pip install -r requirements-dev.txt")
+        _db = mongomock_motor.AsyncMongoMockClient()[settings.mongo_db]
+        _ready = True
+        print("WARNING: MONGO_URI=memory - data is kept in memory and lost when the server stops.")
+        return _db
     from motor.motor_asyncio import AsyncIOMotorClient
 
     client = AsyncIOMotorClient(settings.mongo_uri, serverSelectionTimeoutMS=settings.mongo_timeout_ms)

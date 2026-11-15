@@ -170,6 +170,18 @@ flowchart LR
 
 ---
 
+## 5a. Implementation status (2026-11-15)
+
+| Step | Status |
+|---|---|
+| 1. LLM provider interface | **Done:** `app/llm.py` (gemini / openai_compat / anthropic, model chains, Retry-After, `LLMQuotaError`), configured via `LLM_*` |
+| 2. Tools take ids; batch artifacts (A1, A5) | **Done:** `POST /api/generate`, `POST /api/chat`, `GET /api/projects/{id}/artifacts?docId=`; document lists omit `rawText`; `/mcp` removed (A2) |
+| 3. Split backend + Settings (B1, B3) | **Done:** `app/` package; `app/settings.py` (pydantic-settings) |
+| 4. Shared rate limits + lazy DB (B4, B5) | **Done:** MongoDB TTL counters on Vercel; lazy, retrying connection, 503 instead of empty data; indexes created on connect |
+| 5. Jobs + cache; images in Blob (A3, A4, D) | **Done:** NDJSON stream with heartbeats + `GET /api/jobs/{id}` fallback; result cache keyed by text hash + options; Blob storage when `BLOB_READ_WRITE_TOKEN` is set |
+| 6. Router + hooks; TypeScript + Playwright CI (C1, C2, C3, C5) | **Done:** react-router (`/p/:project/:doc/:tab`), TanStack Query hooks, workspace split into `src/components/workspace/*`, typed API layer in `src/api/*.ts`, `tests/e2e/smoke.cjs`, `.github/workflows/ci.yml` |
+| Not done yet | A6 (artifact versions, `messages` collection), C4 (VideoStudio split, compressed avatars), C6 (user accounts), B6 (structured logs / usage counters), full TypeScript migration of components |
+
 ## 6. Capacity snapshot (from production testing)
 
 | Resource | Current limit | Effective capacity |

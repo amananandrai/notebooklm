@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { createProject } from '../utils/storage';
+import { useCreateProject } from '../hooks/queries';
 
 const COLORS = [
   { color: '#7c6cf6', color2: '#6c5ce7' },
@@ -18,18 +18,23 @@ export default function CreateProjectModal({ onCreated, onClose }) {
   const [colorIdx, setColorIdx] = useState(0);
   const [iconIdx, setIconIdx]   = useState(0);
   const [error, setError]       = useState('');
+  const createProject = useCreateProject();
 
   async function handleSubmit(e) {
     e.preventDefault();
     if (!name.trim()) { setError('Project name is required.'); return; }
-    const project = await createProject({
-      name: name.trim(),
-      description: desc.trim(),
-      color: COLORS[colorIdx].color,
-      color2: COLORS[colorIdx].color2,
-      icon: ICONS[iconIdx],
-    });
-    onCreated(project);
+    try {
+      const project = await createProject.mutateAsync({
+        name: name.trim(),
+        description: desc.trim(),
+        color: COLORS[colorIdx].color,
+        color2: COLORS[colorIdx].color2,
+        icon: ICONS[iconIdx],
+      });
+      onCreated(project);
+    } catch (err) {
+      setError(`Could not create the project: ${err.message}`);
+    }
   }
 
   return (

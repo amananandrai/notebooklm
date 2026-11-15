@@ -7,14 +7,18 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "oxlint",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "typecheck": "tsc -p tsconfig.json",
+    "test:api": "python tests/test_security.py && python tests/test_concurrency.py && python tests/test_server_config.py && python tests/test_api.py"
   },
   "dependencies": {
+    "@tanstack/react-query": "^5.107.1",
     "jspdf": "^4.2.1",
     "pdfjs-dist": "^6.2.108",
     "pptxgenjs": "^4.0.1",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
+    "react-router-dom": "^7.18.5",
     "tesseract.js": "^7.0.0",
     "three": "^0.185.1"
   },
@@ -23,6 +27,7 @@
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.4",
     "oxlint": "^1.75.0",
+    "typescript": "^7.0.2",
     "vite": "^8.2.0"
   },
   "overrides": {

@@ -1,57 +1,36 @@
-import { useState, useEffect } from 'react';
-import { createNote, loadNotes, deleteNote } from '../utils/storage';
+import { useState } from 'react';
+import { useAddNote, useDeleteNote, useNotes } from '../hooks/queries';
 
 export default function NotesPanel({ projectId, docId }) {
-  const [notes, setNotes] = useState([]);
+  const notesQuery = useNotes(projectId);
+  const notes = notesQuery.data || [];
+  const loading = notesQuery.isLoading;
+  const addNote = useAddNote(projectId);
+  const removeNote = useDeleteNote(projectId);
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    async function fetchNotes() {
-      if (!projectId) return;
-      setLoading(true);
-      try {
-        const loaded = await loadNotes(projectId);
-        setNotes(loaded || []);
-      } catch (err) {
-        console.error('Failed to load notes', err);
-      }
-      setLoading(false);
-    }
-    fetchNotes();
-  }, [projectId]);
+  const [error, setError] = useState('');
 
   const handleAddNote = async (e) => {
     e.preventDefault();
     if (!title.trim() && !content.trim()) return;
 
-    const newNote = {
-      id: `note_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-      projectId,
-      docId: docId || null,
-      title: title.trim() || 'Untitled Note',
-      content: content.trim(),
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-
     try {
-      await createNote(projectId, newNote);
-      setNotes(prev => [newNote, ...prev]);
+      setError('');
+      await addNote.mutateAsync({ title: title.trim() || 'Untitled Note', content: content.trim(), docId });
       setTitle('');
       setContent('');
     } catch (err) {
-      console.error('Failed to add note', err);
+      setError(`Could not save the note: ${err.message}`);
     }
   };
 
   const handleDelete = async (noteId) => {
     try {
-      await deleteNote(noteId);
-      setNotes(prev => prev.filter(n => n.id !== noteId));
+      setError('');
+      await removeNote.mutateAsync(noteId);
     } catch (err) {
-      console.error('Failed to delete note', err);
+      setError(`Could not delete the note: ${err.message}`);
     }
   };
 
@@ -81,6 +60,7 @@ export default function NotesPanel({ projectId, docId }) {
           <span>＋</span> Add Note
         </button>
       </form>
+      {error && <div role="alert" style={{ color: 'var(--red)', fontSize: 12, padding: '4px 12px' }}>⚠ {error}</div>}
 
       <div className="ws-notes-list">
         {loading ? (
