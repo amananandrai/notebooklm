@@ -40,7 +40,7 @@ export async function loadProjects() {
     memStore.projects = data;
     return data;
   } catch (err) {
-    console.warn('MongoDB projects fetch failed, using fallback:', err);
+    markFallback('loadProjects', err);
     return memStore.projects;
   }
 }

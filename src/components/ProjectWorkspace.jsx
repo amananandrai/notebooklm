@@ -122,7 +122,7 @@ export default function ProjectWorkspace({ project, onBack }) {
       setOcrState({ fileName: file.name, progress: 0, status: 'Reading PDF pages...' });
 
       try {
-        const parsed = await parsePDFFile(file, (progress, status) => {
+        const parsed = await parsePDFFile(file, ({ progress, status }) => {
           setOcrState({ fileName: file.name, progress, status });
         });
 
@@ -222,7 +222,8 @@ export default function ProjectWorkspace({ project, onBack }) {
         const docs = await Promise.all(
           sources.map(async s => {
             const d = await getDocument(s.id);
-            return d ? { title: d.title, text: (d.rawText || '').slice(0, 5000) } : null;
+            // Full text: the server condenses each source to fit the model's budget.
+            return d ? { title: d.title, text: d.rawText || '' } : null;
           })
         );
         const validDocs = docs.filter(Boolean);
