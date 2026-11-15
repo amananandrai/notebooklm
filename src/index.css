@@ -2774,3 +2774,9 @@ textarea.modal-input { resize: vertical; min-height: 80px; }
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 @keyframes slideUp { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; } }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* Chat page citations */
+button.chat-citation { cursor: pointer; font: inherit; background: none; }
+button.chat-citation:hover, button.chat-citation[aria-expanded="true"] { border-color: var(--accent-indigo); }
+.chat-cite-inline { font-size: 0.78em; opacity: 0.75; white-space: nowrap; }
+.chat-citation-quote { flex-basis: 100%; margin: 6px 0 0; padding: 6px 10px; border-left: 3px solid var(--accent-indigo); font-size: 0.82rem; color: var(--text-muted); }

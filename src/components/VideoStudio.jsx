@@ -30,11 +30,9 @@ import { SPEAKER_COLORS, isHostA, speakerColor } from './studio/speakers.js';
 import { FinishShader } from './studio/finishShader.js';
 import { createTextEnvelope, analyserLevel, createHostPerformer } from './studio/performance.js';
 
+import { API_BASE, apiFetch } from '../utils/api';
 
 const EMPTY_LIST = [];
-const API_BASE = window.location.origin.includes('5173') || window.location.origin.includes('localhost')
-  ? 'http://127.0.0.1:8080/api'
-  : '/api';
 
 export default function VideoStudio({ slides, script }) {
   const mountRef = useRef(null);
@@ -540,7 +538,7 @@ export default function VideoStudio({ slides, script }) {
     try {
       // Generate a real WAV narration first so recording never opens a
       // screen-sharing picker.
-      const ttsResponse = await fetch(`${API_BASE}/tts`, {
+      const ttsResponse = await apiFetch(`${API_BASE}/tts`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ turns }),

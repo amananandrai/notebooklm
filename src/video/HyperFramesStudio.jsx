@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { ASPECT_RATIOS, buildVideoTimeline } from './timeline';
 
-const API_BASE = window.location.origin.includes('5173') || window.location.origin.includes('localhost') ? 'http://127.0.0.1:8080/api' : '/api';
+import { API_BASE, apiFetch, downloadAuthed } from '../utils/api';
 
 export default function HyperFramesStudio({ slides, script }) {
   const [template, setTemplate] = useState('document-summary');
@@ -14,25 +14,31 @@ export default function HyperFramesStudio({ slides, script }) {
   async function renderHyperFrames() {
     setStatus('Submitting HyperFrames HTML render…');
     try {
-      const response = await fetch(`${API_BASE}/hyperframes/render`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ template, timeline, showCaptions }) });
+      const response = await apiFetch(`${API_BASE}/hyperframes/render`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ template, timeline, showCaptions }) });
       if (!response.ok) {
         const errorBody = await response.json().catch(() => ({}));
         throw new Error(errorBody.detail || errorBody.error || 'HyperFrames render failed.');
       }
       const result = await response.json();
       setStatus(result.message || 'HyperFrames render started.');
+      const downloadLink = (path) => <span>HyperFrames render complete. <button type="button" onClick={() => downloadAuthed(path, 'notebooklm_hyperframes.mp4').catch(e => setStatus(e.message))} style={{ color: 'var(--accent-lit)', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline', font: 'inherit' }}>Download MP4</button></span>;
       if (result.status === 'complete' && result.downloadUrl) {
-        setStatus(<span>HyperFrames render complete. <a href={result.downloadUrl} download style={{ color: 'var(--accent-lit)' }}>Download MP4</a></span>);
+        setStatus(downloadLink(result.downloadUrl));
         return;
       }
       const poll = async () => {
-        const statusResponse = await fetch(`${API_BASE}/hyperframes/render/${result.jobId}`);
-        const renderStatus = await statusResponse.json();
+        let renderStatus;
+        try {
+          const statusResponse = await apiFetch(`${API_BASE}/hyperframes/render/${result.jobId}`);
+          renderStatus = await statusResponse.json();
+        } catch (error) {
+          setStatus(error.message || 'Lost connection to the render service.');
+          return;
+        }
         if (renderStatus.status === 'rendering') {
           window.setTimeout(poll, 1500);
         } else if (renderStatus.status === 'complete') {
-          const baseUrl = API_BASE.replace('/api', '');
-          setStatus(<span>HyperFrames render complete. <a href={`${baseUrl}${renderStatus.downloadUrl}`} download style={{ color: 'var(--accent-lit)' }}>Download MP4</a></span>);
+          setStatus(downloadLink(renderStatus.downloadUrl));
         } else {
           setStatus(renderStatus.detail || renderStatus.message || 'HyperFrames render failed.');
         }

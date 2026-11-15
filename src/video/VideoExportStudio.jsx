@@ -5,7 +5,7 @@ import DocumentSummaryComposition from './DocumentSummaryComposition';
 import SocialShortComposition from './SocialShortComposition';
 import { ASPECT_RATIOS, buildVideoTimeline } from './timeline';
 
-const API_BASE = window.location.origin.includes('5173') || window.location.origin.includes('localhost') ? 'http://127.0.0.1:8080/api' : '/api';
+import { API_BASE, apiFetch, downloadAuthed } from '../utils/api';
 
 export default function VideoExportStudio({ slides, script }) {
   const [composition, setComposition] = useState('podcast');
@@ -18,17 +18,23 @@ export default function VideoExportStudio({ slides, script }) {
   async function renderVideo() {
     setRenderState({ status: 'rendering', message: 'Submitting deterministic render…' });
     try {
-      const response = await fetch(`${API_BASE}/videos/render`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ composition, timeline, showCaptions }) });
+      const response = await apiFetch(`${API_BASE}/videos/render`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ composition, timeline, showCaptions }) });
       if (!response.ok) throw new Error(await response.text());
       const result = await response.json();
       setRenderState({ status: 'rendering', message: result.message || 'Rendering MP4…', jobId: result.jobId });
       const poll = async () => {
-        const statusResponse = await fetch(`${API_BASE}/videos/render/${result.jobId}`);
-        const status = await statusResponse.json();
+        let status;
+        try {
+          const statusResponse = await apiFetch(`${API_BASE}/videos/render/${result.jobId}`);
+          status = await statusResponse.json();
+        } catch (error) {
+          setRenderState({ status: 'error', message: error.message || 'Lost connection to the render service.' });
+          return;
+        }
         if (status.status === 'rendering') {
           window.setTimeout(poll, 1500);
         } else if (status.status === 'complete') {
-          setRenderState({ status: 'complete', message: 'MP4 render complete.', jobId: result.jobId, downloadUrl: `${API_BASE.replace('/api', '')}${status.downloadUrl}` });
+          setRenderState({ status: 'complete', message: 'MP4 render complete.', jobId: result.jobId, downloadPath: status.downloadUrl });
         } else {
           setRenderState({ status: 'error', message: status.message || 'Remotion render failed.' });
         }
@@ -53,6 +59,6 @@ export default function VideoExportStudio({ slides, script }) {
     <div className="video-export-preview">
       <Player component={Component} inputProps={{ timeline, showCaptions }} durationInFrames={timeline.durationInFrames} compositionWidth={timeline.width} compositionHeight={timeline.height} fps={timeline.fps} controls style={{ width: 'min(100%, 720px)', maxHeight: '100%', aspectRatio: `${timeline.width}/${timeline.height}`, background: '#080a12', border: '1px solid var(--border-med)', borderRadius: 12, overflow: 'hidden', boxShadow: 'var(--shadow-md)' }} />
     </div>
-    {renderState.message && <div className={`video-export-status ${renderState.status === 'error' ? 'error' : ''}`}>{renderState.message} {renderState.downloadUrl && <a href={renderState.downloadUrl} download>Download MP4</a>}</div>}
+    {renderState.message && <div className={`video-export-status ${renderState.status === 'error' ? 'error' : ''}`}>{renderState.message} {renderState.downloadPath && <button type="button" className="btn-generate" onClick={() => downloadAuthed(renderState.downloadPath, 'notebooklm_video.mp4').catch(e => setRenderState(prev => ({ ...prev, message: e.message })))}>Download MP4</button>}</div>}
   </div>;
 }

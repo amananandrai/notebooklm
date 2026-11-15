@@ -12,6 +12,7 @@ export default function ChatAssistant({ docTitle, onAskQuestion, initialMessages
   });
   const [input, setInput]     = useState('');
   const [loading, setLoading] = useState(false);
+  const [openCite, setOpenCite] = useState(null); // `${msgId}:${page}`
   const bottomRef = useRef();
 
   useEffect(() => {
@@ -29,7 +30,7 @@ export default function ChatAssistant({ docTitle, onAskQuestion, initialMessages
     setLoading(true);
 
     try {
-      const resp = await onAskQuestion(q);
+      const resp = await onAskQuestion(q, messages.filter(m => m.id !== 'init').map(m => ({ sender: m.sender, text: m.text })));
       const aiMsg = {
         id: Date.now() + 1,
         sender: 'assistant',
@@ -43,7 +44,7 @@ export default function ChatAssistant({ docTitle, onAskQuestion, initialMessages
       const errMsg = {
         id: Date.now() + 1,
         sender: 'assistant',
-        text: `⚠️ Error: ${err.message}. Please ensure the MCP server is running at http://127.0.0.1:8080`,
+        text: `⚠️ Error: ${err.message}. Please check that the MCP server is reachable (MCP settings).`,
         citations: [],
       };
       const final = [...updated, errMsg];
@@ -72,10 +73,19 @@ export default function ChatAssistant({ docTitle, onAskQuestion, initialMessages
     URL.revokeObjectURL(url);
   }
 
+  // Escape everything first, then apply a small whitelist of formatting, so
+  // model output (which can echo text from uploaded PDFs) can never inject HTML.
   function renderText(text) {
-    // Simple markdown: bold, newlines
-    return text
-      .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+    const escaped = String(text ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+    return escaped
+      .replace(/`([^`\n]+)`/g, '<code>$1</code>')
+      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+      .replace(/\[(Pages?) ([\d,\s\-–]+)\]/g, '<span class="chat-cite-inline">[$1 $2]</span>')
       .replace(/\n/g, '<br/>');
   }
 
@@ -94,8 +104,28 @@ export default function ChatAssistant({ docTitle, onAskQuestion, initialMessages
               />
               {msg.citations?.length > 0 && (
                 <div className="chat-citations">
-                  {msg.citations.map((c, i) => (
-                    <span key={i} className="chat-citation">📎 {c}</span>
+                  {msg.citations.map((c, i) => {
+                    if (typeof c === 'string') {
+                      return <span key={i} className="chat-citation">📎 {c}</span>;
+                    }
+                    const id = `${msg.id}:${c.page}`;
+                    return (
+                      <button
+                        key={i}
+                        type="button"
+                        className="chat-citation"
+                        aria-expanded={openCite === id}
+                        title={c.snippet}
+                        onClick={() => setOpenCite(openCite === id ? null : id)}
+                      >
+                        📎 Page {c.page}
+                      </button>
+                    );
+                  })}
+                  {msg.citations.map(c => typeof c !== 'string' && openCite === `${msg.id}:${c.page}` && (
+                    <blockquote key={`q${c.page}`} className="chat-citation-quote">
+                      <strong>Page {c.page}:</strong> “{c.snippet}”
+                    </blockquote>
                   ))}
                 </div>
               )}
