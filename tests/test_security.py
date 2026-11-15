@@ -61,7 +61,7 @@ check("wrong key -> 401", c.get("/api/projects", headers=A("nope")).status_code 
 check("mcp no key -> 401", c.post("/mcp", json={"jsonrpc": "2.0", "method": "tools/list"}).status_code == 401)
 check("valid key -> 200", c.get("/api/projects", headers=A("keyAAAA")).status_code == 200)
 check("tts needs auth", c.post("/api/tts", json={"turns": []}).status_code == 401)
-check("render needs auth", c.post("/api/videos/render", json={"composition": "podcast", "timeline": {}}).status_code == 401)
+check("removed render endpoints are gone", all(c.post(u, json={}, headers=A("keyAAAA")).status_code in (404, 405) for u in ("/api/videos/render", "/api/hyperframes/render")))
 
 # isolation
 c.post("/api/projects", json=proj("p1"), headers=A("keyAAAA"))
@@ -81,15 +81,6 @@ c.post("/api/projects", json={**proj("p1"), "name": "hijack"}, headers=A("keyBBB
 check("B same-id write doesn't overwrite A", c.get("/api/projects", headers=A("keyAAAA")).json()[0]["name"] == "n")
 check("oversize doc -> 413", c.post("/api/documents", json={"id": "d2", "projectId": "p1", "rawText": "x" * (sec.MAX_DOC_CHARS + 1)}, headers=A("keyAAAA")).status_code == 413)
 check("oversize body -> 413", c.post("/api/documents", content=b"x", headers={**A("keyAAAA"), "content-length": str(sec.MAX_BODY_BYTES + 1), "content-type": "application/json"}).status_code == 413)
-
-# render job ownership
-class P: 
-    def poll(s): return 0
-    returncode = 0
-srv.VIDEO_RENDER_JOBS["video_1"] = {"process": P(), "output": "/nonexistent", "owner": sec.owner_id_for("keyAAAA")}
-check("owner can see job", c.get("/api/videos/render/video_1", headers=A("keyAAAA")).status_code == 200)
-check("other user gets 404 for job", c.get("/api/videos/render/video_1", headers=A("keyBBBB")).status_code == 404)
-check("other user gets 404 for download", c.get("/api/videos/video_1/download", headers=A("keyBBBB")).status_code == 404)
 
 # CORS
 r = c.options("/api/projects", headers={"Origin": "https://evil.example", "Access-Control-Request-Method": "GET", "Access-Control-Request-Headers": "authorization"})
@@ -118,13 +109,11 @@ sec.LIMITS["general"] = [(3, 60)]
 codes = [c.get("/api/projects", headers=A("keyAAAA")).status_code for _ in range(5)]
 check("general limit trips after 3", codes == [200, 200, 200, 429, 429])
 
-# render bucket
+# tts bucket (tighter limit on narration)
 sec, srv, c = load(APP_ACCESS_KEYS="keyAAAA")
-sec.LIMITS["render"] = [(1, 3600)]
-srv.subprocess.Popen = lambda *a, **k: P()
-b = {"composition": "podcast", "timeline": {}, "showCaptions": True}
-check("render 1 accepted", c.post("/api/videos/render", json=b, headers=A("keyAAAA")).status_code == 200)
-check("render 2 rate limited", c.post("/api/videos/render", json=b, headers=A("keyAAAA")).status_code == 429)
+sec.LIMITS["tts"] = [(1, 60)]
+check("tts 1 reaches handler", c.post("/api/tts", json={"turns": []}, headers=A("keyAAAA")).status_code == 400)
+check("tts 2 rate limited", c.post("/api/tts", json={"turns": []}, headers=A("keyAAAA")).status_code == 429)
 
 # brute force lockout
 sec, srv, c = load(APP_ACCESS_KEYS="keyAAAA")

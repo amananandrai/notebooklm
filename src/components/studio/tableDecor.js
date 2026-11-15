@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { MAT, rand } from './materials.js';
+import { MAT } from './materials.js';
 import { addMesh, createCylinder } from './helpers.js';
 import { createDetailedBook } from './shelves.js';
 import { DESK } from './layout.js';

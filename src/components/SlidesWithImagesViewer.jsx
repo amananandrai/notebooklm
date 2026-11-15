@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { IMAGE_SLIDE_THEMES } from '../utils/themes';
 
 // ── Image loader: fetch a URL and return a base64 data URI ──────────────────

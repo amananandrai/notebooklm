@@ -37,7 +37,6 @@ async function downloadPDF(slides, docTitle, activeTheme) {
   const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: [W, H] });
 
   const bgRgb = hexToRgb(theme.bg);
-  const cardRgb = hexToRgb(theme.cardBg);
   const textPrimaryRgb = hexToRgb(theme.textPrimary);
   const textSecondaryRgb = hexToRgb(theme.textSecondary);
   const accentRgb = hexToRgb(theme.accent);
@@ -130,10 +129,8 @@ async function downloadPPTX(slides, docTitle, activeTheme) {
   prs.layout = 'LAYOUT_WIDE';
 
   const bgHex = theme.bg.replace('#', '');
-  const cardHex = theme.cardBg.replace('#', '');
   const textPrimaryHex = theme.textPrimary.replace('#', '');
   const textSecondaryHex = theme.textSecondary.replace('#', '');
-  const accentHex = theme.accent.replace('#', '');
 
   const getPptxFont = (fontFamily) => {
     if (!fontFamily) return 'Helvetica';

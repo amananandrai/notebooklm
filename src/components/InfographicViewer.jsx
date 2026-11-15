@@ -25,7 +25,6 @@ export default function InfographicViewer({ data }) {
     title = 'Document Infographic',
     subtitle = '',
     accentColor = '#6d28d9',
-    accentColor2 = '#db2777',
     heroImage = '',
     stats = [],
     sections = [],

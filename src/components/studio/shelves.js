@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { MAT, rand } from './materials.js';
-import { addMesh, createBox } from './helpers.js';
+import { addMesh } from './helpers.js';
 import { createGlobe, createLamp, createDecorativeVase } from './props.js';
 import { createTrailingPlant } from './plants.js';
 

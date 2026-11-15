@@ -1,36 +1,13 @@
-import { apiFetch } from './api';
+import { API_ORIGIN, apiFetch } from './api';
 
 /**
- * Single JSON-RPC client for the NotebookLM MCP server.
- * The endpoint comes from the saved MCP config, or defaults to the local
- * dev server on localhost / same-origin `/mcp` when deployed.
+ * JSON-RPC client for the NotebookLM MCP endpoint on this app's own API server.
  */
 
-const IS_LOCAL = typeof window !== 'undefined' &&
-  (window.location.origin.includes('5173') || window.location.origin.includes('localhost'));
-const DEFAULT_URL = IS_LOCAL ? 'http://127.0.0.1:8080/mcp' : '/mcp';
-
-let mcpConfig = { mode: 'mcp_server', serverUrl: DEFAULT_URL };
-
-export function setMCPConfig(newConfig) {
-  mcpConfig = { ...mcpConfig, ...newConfig };
-  localStorage.setItem('notebooklm_mcp_config', JSON.stringify(mcpConfig));
-}
-
-export function getMCPConfig() {
-  try {
-    const saved = localStorage.getItem('notebooklm_mcp_config');
-    if (saved) mcpConfig = { ...mcpConfig, ...JSON.parse(saved) };
-  } catch { /* ignore corrupt config */ }
-  return mcpConfig;
-}
-
-export function getMCPEndpoint() {
-  return getMCPConfig().serverUrl || DEFAULT_URL;
-}
+const MCP_ENDPOINT = `${API_ORIGIN}/mcp`;
 
 export async function callMCP(toolName, args) {
-  const res = await apiFetch(getMCPEndpoint(), {
+  const res = await apiFetch(MCP_ENDPOINT, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({

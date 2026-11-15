@@ -87,7 +87,7 @@ export function createHeroPlant(scene, x, z, scale = 1.0) {
   // 1. Heavy Cylindrical Concrete Planter Pot
   const potHeight = 0.68;
   const potRadius = 0.35;
-  const pot = createCylinder(
+  createCylinder(
     group,
     potRadius,
     potRadius * 0.92,

@@ -77,15 +77,3 @@ export async function apiFetch(url, options = {}) {
   }
   return res;
 }
-
-/** Download a file from an authenticated endpoint (anchors can't send headers). */
-export async function downloadAuthed(path, filename) {
-  const res = await apiFetch(`${API_ORIGIN}${path}`);
-  if (!res.ok) throw new ApiError(await errorDetail(res), res.status);
-  const url = URL.createObjectURL(await res.blob());
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(url), 10000);
-}

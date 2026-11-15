@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import { MAT, rand } from './materials.js';
-import { addMesh, createBox, createCylinder } from './helpers.js';
+import { MAT } from './materials.js';
+import { createCylinder } from './helpers.js';
 
 // ================================================================
 // DECORATIVE GLOBE ON BRASS STAND
