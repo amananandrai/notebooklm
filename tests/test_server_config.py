@@ -66,5 +66,14 @@ if real_which("espeak-ng") or real_which("espeak"):
 else:
     print("SKIP espeak render (espeak-ng not installed)")
 
+# Serverless hosts mount the code read-only: temp files must go to the system temp dir.
+import tempfile
+os.environ["VERCEL"] = "1"
+check("on Vercel, work dir is under the system temp dir", srv._writable_work_dir().startswith(tempfile.gettempdir()))
+os.environ.pop("VERCEL")
+os.environ["NOTEBOOKLM_WORK_DIR"] = "/custom/dir"
+check("NOTEBOOKLM_WORK_DIR overrides the work dir", srv._writable_work_dir() == "/custom/dir")
+os.environ.pop("NOTEBOOKLM_WORK_DIR")
+
 print("\nFAILURES:", failures)
 sys.exit(1 if failures else 0)

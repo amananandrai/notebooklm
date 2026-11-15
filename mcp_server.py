@@ -347,7 +347,7 @@ def _synthesize_video_audio(turns: List[dict]) -> dict:
     if not items:
         raise ValueError("Dialogue turns contain no text")
 
-    temp_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".tmp_tts")
+    temp_root = os.path.join(WORK_DIR, ".tmp_tts")
     os.makedirs(temp_root, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="notebooklm_tts_", dir=temp_root, ignore_cleanup_errors=True) as temp_dir:
         def render(item):
@@ -410,7 +410,21 @@ async def synthesize_tts(request: TTSRequest):
 
 
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
-RENDER_DIR = os.path.join(PROJECT_ROOT, "renders")
+
+
+def _writable_work_dir() -> str:
+    """Where temp files and renders go. Serverless hosts (Vercel) mount the code
+    read-only, so fall back to the system temp dir when the project dir isn't writable."""
+    configured = os.getenv("NOTEBOOKLM_WORK_DIR")
+    if configured:
+        return configured
+    if not os.getenv("VERCEL") and os.access(PROJECT_ROOT, os.W_OK):
+        return PROJECT_ROOT
+    return os.path.join(tempfile.gettempdir(), "notebooklm")
+
+
+WORK_DIR = _writable_work_dir()
+RENDER_DIR = os.path.join(WORK_DIR, "renders")
 RENDER_RETENTION_HOURS = float(os.getenv("RENDER_RETENTION_HOURS", "24"))
 
 
@@ -436,7 +450,7 @@ def _cleanup_old_renders() -> None:
         for job_id, job in list(jobs.items()):
             if job["process"].poll() is not None and job.get("started", time.time()) < cutoff:
                 jobs.pop(job_id, None)
-    for folder in (RENDER_DIR, os.path.join(PROJECT_ROOT, ".tmp_tts"), os.path.join(PROJECT_ROOT, ".tmp_hyperframes")):
+    for folder in (RENDER_DIR, os.path.join(WORK_DIR, ".tmp_tts"), os.path.join(WORK_DIR, ".tmp_hyperframes")):
         if not os.path.isdir(folder):
             continue
         for name in os.listdir(folder):
@@ -478,7 +492,7 @@ def _owned_job(jobs: dict, job_id: str, owner):
 def _start_video_render(composition_id: str, props: dict, job_id: str, output_path: str, owner=None):
     """Start a local Remotion render. The process is polled through the job endpoint."""
     project_root = os.path.dirname(os.path.abspath(__file__))
-    props_path = os.path.join(project_root, ".tmp_tts", f"{job_id}.json")
+    props_path = os.path.join(WORK_DIR, ".tmp_tts", f"{job_id}.json")
     os.makedirs(os.path.dirname(props_path), exist_ok=True)
     with open(props_path, "w", encoding="utf-8") as props_file:
         json.dump(props, props_file)
@@ -505,7 +519,7 @@ async def render_video(request: VideoRenderRequest, owner=Depends(current_owner)
     if not composition_id:
         raise HTTPException(status_code=400, detail="Unsupported Remotion composition")
     job_id = f"video_{int(__import__('time').time() * 1000)}"
-    render_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "renders")
+    render_dir = RENDER_DIR
     os.makedirs(render_dir, exist_ok=True)
     output_path = os.path.join(render_dir, f"{job_id}.mp4")
     try:
@@ -554,8 +568,8 @@ async def render_hyperframes(request: HyperFramesRenderRequest, owner=Depends(cu
     resolution = "portrait" if height > width else "square" if width == height else "landscape"
     job_id = f"hyperframes_{int(time.time() * 1000)}"
     project_root = os.path.dirname(os.path.abspath(__file__))
-    project_dir = os.path.join(project_root, ".tmp_hyperframes", job_id)
-    output_dir = os.path.join(project_root, "renders")
+    project_dir = os.path.join(WORK_DIR, ".tmp_hyperframes", job_id)
+    output_dir = RENDER_DIR
     output_path = os.path.join(output_dir, f"{job_id}.mp4")
     os.makedirs(project_dir, exist_ok=True)
     os.makedirs(output_dir, exist_ok=True)
@@ -1205,12 +1219,18 @@ All content must be grounded in actual document content. imagePrompt must be a v
     slides = parse_json(call_gemini(prompt))
     slides = slides[:count]
 
-    # Build Pollinations URL for each slide
-    for i, slide in enumerate(slides):
+    # Build a Pollinations URL for each slide. Each call also warms the image
+    # (~5s each), so run them in parallel instead of one after another.
+    def build(i_slide):
+        i, slide = i_slide
         img_prompt = slide.get("imagePrompt", f"{title} concept, visual illustration")
-        full_prompt = f"{img_prompt}, {modifier}"
-        slide["imageUrl"] = call_pollinations(full_prompt, width=1280, height=720, seed=i * 17 + 7, model="flux-realism")
-        slide["imageData"] = slide["imageUrl"]
+        return call_pollinations(f"{img_prompt}, {modifier}", width=1280, height=720, seed=i * 17 + 7, model="flux-realism")
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        urls = list(pool.map(build, enumerate(slides)))
+    for slide, url in zip(slides, urls):
+        slide["imageUrl"] = url
+        slide["imageData"] = url
         slide["theme"] = theme
 
     return slides
