@@ -16,6 +16,7 @@ def slow_gemini(prompt):
 
 async def main():
     mcp_server.call_gemini = slow_gemini
+    mcp_server.GEMINI_API_KEY = "test-key"  # stubbed: no real calls are made
     mcp_server.db = None
     transport = httpx.ASGITransport(app=mcp_server.app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:

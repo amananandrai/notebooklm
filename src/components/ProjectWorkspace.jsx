@@ -1,6 +1,5 @@
-import { useState, useRef, useEffect } from 'react';
-import { parsePDFFile } from '../utils/pdfParser';
-import { saveDocument, getDocument, deleteDocument, getArtifact, saveArtifact, deleteArtifactsForDoc, loadProjects, loadDocumentsForProject } from '../utils/storage';
+import { useState, useRef, useEffect, lazy, Suspense } from 'react';
+import { saveDocument, getDocument, deleteDocument, getArtifact, saveArtifact, deleteArtifactsForDoc, loadDocumentsForProject } from '../utils/storage';
 import MindMapViewer from './MindMapViewer';
 import AudioPlayer from './AudioPlayer';
 import SlideDeckViewer from './SlideDeckViewer';
@@ -8,14 +7,19 @@ import SlidesWithImagesViewer from './SlidesWithImagesViewer';
 import InfographicViewer from './InfographicViewer';
 import StudyGuideViewer from './StudyGuideViewer';
 import ChatAssistant from './ChatAssistant';
-import VideoStudio from './VideoStudio';
-import VideoExportStudio from '../video/VideoExportStudio';
-import HyperFramesStudio from '../video/HyperFramesStudio';
+// Heavy, rarely-opened tabs load on demand (three.js studio, Remotion, OCR).
+const VideoStudio = lazy(() => import('./VideoStudio'));
+const HyperFramesStudio = lazy(() => import('../video/HyperFramesStudio'));
 import ReportViewer from './ReportViewer';
+import SynthesisViewer from './SynthesisViewer';
 import DataTableViewer from './DataTableViewer';
 import NotesPanel from './NotesPanel';
 import { callMCP } from '../utils/notebookLMEngine';
 import { DECK_THEMES, IMAGE_SLIDE_THEMES, SLIDE_COUNTS, AUDIO_LENGTHS, AUDIO_TONES } from '../utils/themes';
+
+function TabLoading() {
+  return <div style={{ height: '100%', display: 'grid', placeItems: 'center', color: 'var(--text-muted)' }}>Loading…</div>;
+}
 
 // ── Tab configuration ──────────────────────────────────────────
 const TABS = [
@@ -122,6 +126,7 @@ export default function ProjectWorkspace({ project, onBack }) {
       setOcrState({ fileName: file.name, progress: 0, status: 'Reading PDF pages...' });
 
       try {
+        const { parsePDFFile } = await import('../utils/pdfParser');
         const parsed = await parsePDFFile(file, ({ progress, status }) => {
           setOcrState({ fileName: file.name, progress, status });
         });
@@ -479,7 +484,7 @@ export default function ProjectWorkspace({ project, onBack }) {
       if (!audioData || !slidesData) {
         return <div className="studio-empty"><div className="studio-empty-icon">HF</div><div className="studio-empty-title">Generate audio and slides first</div><div className="studio-empty-desc">HyperFrames uses the same narration and slide data as Video Studio.</div><button className="btn-generate" onClick={() => handleTabChange(!audioData ? 'audio' : 'slides')}>Go to Generate →</button></div>;
       }
-      return <div style={{ height: '100%' }}><HyperFramesStudio slides={slidesData} script={audioData} /></div>;
+      return <div style={{ height: '100%' }}><Suspense fallback={<TabLoading />}><HyperFramesStudio slides={slidesData} script={audioData} /></Suspense></div>;
     }
 
     if (activeTab === 'video') {
@@ -535,7 +540,7 @@ export default function ProjectWorkspace({ project, onBack }) {
             </div>
           </div>
           <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-            <VideoStudio slides={slidesData} script={audioData} />
+            <Suspense fallback={<TabLoading />}><VideoStudio slides={slidesData} script={audioData} /></Suspense>
           </div>
         </div>
       );
@@ -778,16 +783,7 @@ export default function ProjectWorkspace({ project, onBack }) {
     if (activeTab === 'infographic')return <><div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>{contentHeader}<div style={{ flex: 1, overflow: 'hidden' }}><InfographicViewer data={artifact} /></div></div></>;
     if (activeTab === 'report')     return <><div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>{contentHeader}<div style={{ flex: 1, overflow: 'hidden' }}><ReportViewer data={artifact} /></div></div></>;
     if (activeTab === 'datatable')  return <><div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>{contentHeader}<div style={{ flex: 1, overflow: 'hidden' }}><DataTableViewer data={artifact} /></div></div></>;
-    if (activeTab === 'synthesis')  return <><div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>{contentHeader}<div style={{ flex: 1, overflow: 'hidden' }}><ReportViewer data={{
-      reportTitle: artifact.synthesisTitle || 'Cross-Document Synthesis',
-      reportType: `${artifact.documentCount || 0} Documents Analyzed`,
-      executiveSummary: artifact.overallSynthesis || '',
-      keyFindings: (artifact.commonThemes || []).map(t => `${t.theme}: ${t.evidence}`),
-      sections: (artifact.uniqueInsights || []).map(u => ({ title: u.document, content: u.insight })),
-      strategicRecommendations: artifact.recommendations || [],
-      riskAnalysis: (artifact.contradictions || []).map(c => ({ risk: c.topic, severity: 'Medium', mitigation: `${c.docA} vs ${c.docB}` })),
-      conclusion: artifact.overallSynthesis || '',
-    }} /></div></div></>;
+    if (activeTab === 'synthesis')  return <><div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>{contentHeader}<div style={{ flex: 1, overflow: 'hidden' }}><SynthesisViewer data={artifact} /></div></div></>;
     if (activeTab === 'studyguide') return <><div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>{contentHeader}<div style={{ flex: 1, overflow: 'hidden' }}><StudyGuideViewer data={artifact} /></div></div></>;
   }
 
